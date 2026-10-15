@@ -1,0 +1,691 @@
+import type { BlockDefinition } from './controls';
+import type { BlockType } from './types';
+
+const EVERYWHERE: BlockDefinition['allowedIn'] = ['page', 'section', 'container'];
+const ALIGN_WIDTH: BlockDefinition['styleKeys'] = ['align', 'width', 'padding', 'color', 'background', 'font', 'radius', 'shadow'];
+
+const BUTTON_STYLE = [
+  { value: 'primary', label: 'Primary' },
+  { value: 'secondary', label: 'Secondary' },
+  { value: 'ghost', label: 'Ghost' },
+  { value: 'outline', label: 'Outline' },
+];
+
+export const BLOCK_DEFS: BlockDefinition[] = [
+  // ---------------------------------------------------------------- Structure
+  {
+    type: 'section',
+    label: 'Section',
+    group: 'Structure',
+    icon: 'LayoutPanelOpen',
+    description: 'Full-width band. Drop blocks inside it.',
+    allowedIn: ['page'],
+    isContainer: true,
+    controls: [{ kind: 'select', key: 'tone', label: 'Background tone', options: [
+      { value: 'surface', label: 'Surface' },
+      { value: 'muted', label: 'Muted' },
+      { value: 'primary', label: 'Brand' },
+      { value: 'dark', label: 'Dark' },
+      { value: 'none', label: 'None' },
+    ] }],
+    styleKeys: ['padding', 'background', 'radius', 'shadow'],
+  },
+  {
+    type: 'columns',
+    label: 'Columns',
+    group: 'Structure',
+    icon: 'Columns2',
+    description: 'Side-by-side columns. Each column is a container.',
+    allowedIn: ['page', 'section', 'container'],
+    isContainer: false,
+    controls: [
+      { kind: 'select', key: 'count', label: 'Columns', options: [
+        { value: '2', label: '2' }, { value: '3', label: '3' }, { value: '4', label: '4' },
+      ] },
+      { kind: 'select', key: 'stack_on_mobile', label: 'On mobile', options: [
+        { value: 'stack', label: 'Stack vertically' }, { value: 'scroll', label: 'Keep side by side' },
+      ] },
+    ],
+    styleKeys: ['gap', 'padding', 'width'],
+  },
+  {
+    type: 'container',
+    label: 'Container',
+    group: 'Structure',
+    icon: 'Square',
+    description: 'Boxed area that holds other blocks.',
+    allowedIn: ['page', 'section', 'container', 'columns'],
+    isContainer: true,
+    controls: [],
+    styleKeys: [...ALIGN_WIDTH],
+  },
+
+  // ------------------------------------------------------------------ Basics
+  {
+    type: 'heading',
+    label: 'Heading',
+    group: 'Basics',
+    icon: 'Heading',
+    description: 'A title. Levels 1–4; only one H1 per page.',
+    allowedIn: EVERYWHERE,
+    controls: [
+      { kind: 'text', key: 'text', label: 'Text', max: 300 },
+      { kind: 'select', key: 'level', label: 'Level', options: [
+        { value: '1', label: 'H1' }, { value: '2', label: 'H2' }, { value: '3', label: 'H3' }, { value: '4', label: 'H4' },
+      ] },
+    ],
+    styleKeys: [...ALIGN_WIDTH],
+  },
+  {
+    type: 'text',
+    label: 'Paragraph',
+    group: 'Basics',
+    icon: 'Type',
+    description: 'Body copy. **bold** and [links](url) are supported.',
+    allowedIn: EVERYWHERE,
+    controls: [{ kind: 'richtext', key: 'html', label: 'Content', max: 6000 }],
+    styleKeys: [...ALIGN_WIDTH],
+  },
+  {
+    type: 'image',
+    label: 'Image',
+    group: 'Basics',
+    icon: 'Image',
+    description: 'A single image from the media library or a URL.',
+    allowedIn: EVERYWHERE,
+    controls: [
+      { kind: 'image', key: 'src', label: 'Source' },
+      { kind: 'text', key: 'alt', label: 'Alt text', max: 200 },
+      { kind: 'text', key: 'caption', label: 'Caption', max: 200 },
+      { kind: 'select', key: 'fit', label: 'Fit', options: [
+        { value: 'cover', label: 'Cover' }, { value: 'contain', label: 'Contain' },
+      ] },
+      { kind: 'select', key: 'ratio', label: 'Aspect', options: [
+        { value: 'auto', label: 'Original' }, { value: '16/9', label: '16:9' },
+        { value: '4/3', label: '4:3' }, { value: '1/1', label: 'Square' },
+      ] },
+    ],
+    styleKeys: ['width', 'radius', 'padding', 'shadow'],
+  },
+  {
+    type: 'button',
+    label: 'Button',
+    group: 'Basics',
+    icon: 'RectangleHorizontal',
+    description: 'A link styled as a button.',
+    allowedIn: EVERYWHERE,
+    controls: [
+      { kind: 'text', key: 'label', label: 'Label', max: 80 },
+      { kind: 'link', key: 'href', label: 'Link to' },
+      { kind: 'select', key: 'variant', label: 'Style', options: BUTTON_STYLE },
+      { kind: 'select', key: 'size', label: 'Size', options: [
+        { value: 'sm', label: 'Small' }, { value: 'md', label: 'Medium' }, { value: 'lg', label: 'Large' },
+      ] },
+      { kind: 'toggle', key: 'new_tab', label: 'Open in a new tab' },
+    ],
+    styleKeys: ['align', 'radius'],
+  },
+  {
+    type: 'button_group',
+    label: 'Button row',
+    group: 'Basics',
+    icon: 'ListChecks',
+    description: 'Two or three buttons side by side.',
+    allowedIn: EVERYWHERE,
+    controls: [
+      { kind: 'select', key: 'align', label: 'Alignment', options: [
+        { value: 'left', label: 'Left' }, { value: 'center', label: 'Center' }, { value: 'right', label: 'Right' },
+      ] },
+    ],
+    items: {
+      key: 'items',
+      label: 'Buttons',
+      itemLabel: 'Button',
+      titleKey: 'label',
+      max: 6,
+      blank: { label: 'Learn more', href: '#', variant: 'secondary', new_tab: false },
+      controls: [
+        { kind: 'text', key: 'label', label: 'Label', max: 80 },
+        { kind: 'link', key: 'href', label: 'Link to' },
+        { kind: 'select', key: 'variant', label: 'Style', options: BUTTON_STYLE },
+        { kind: 'toggle', key: 'new_tab', label: 'New tab' },
+      ],
+    },
+    styleKeys: ['align', 'padding', 'gap'],
+  },
+  {
+    type: 'divider',
+    label: 'Divider',
+    group: 'Basics',
+    icon: 'Minus',
+    description: 'A horizontal rule.',
+    allowedIn: EVERYWHERE,
+    controls: [{ kind: 'select', key: 'weight', label: 'Thickness', options: [
+      { value: '1px', label: 'Thin' }, { value: '2px', label: 'Medium' }, { value: '4px', label: 'Bold' },
+    ] }],
+    styleKeys: ['padding', 'color', 'width'],
+  },
+  {
+    type: 'spacer',
+    label: 'Spacer',
+    group: 'Basics',
+    icon: 'MoveVertical',
+    description: 'Empty vertical space.',
+    allowedIn: EVERYWHERE,
+    controls: [{ kind: 'number', key: 'height', label: 'Height', min: 8, max: 400, suffix: 'px' }],
+    styleKeys: ['width'],
+  },
+  {
+    type: 'list',
+    label: 'List',
+    group: 'Basics',
+    icon: 'List',
+    description: 'Bulleted or numbered items, optionally with a tick.',
+    allowedIn: EVERYWHERE,
+    controls: [
+      { kind: 'select', key: 'style', label: 'Marker', options: [
+        { value: 'disc', label: 'Bullet' }, { value: 'decimal', label: 'Number' }, { value: 'check', label: 'Tick' },
+      ] },
+    ],
+    items: {
+      key: 'items',
+      label: 'Items',
+      itemLabel: 'Item',
+      titleKey: 'text',
+      max: 30,
+      blank: { text: 'First point' },
+      controls: [{ kind: 'text', key: 'text', label: 'Text', max: 300 }],
+    },
+    styleKeys: ['align', 'padding', 'color', 'width'],
+  },
+  {
+    type: 'quote',
+    label: 'Quote',
+    group: 'Basics',
+    icon: 'Quote',
+    description: 'A pull quote with attribution.',
+    allowedIn: EVERYWHERE,
+    controls: [
+      { kind: 'textarea', key: 'text', label: 'Quote', max: 1000, rows: 4 },
+      { kind: 'text', key: 'attribution', label: 'Attribution', max: 140 },
+    ],
+    styleKeys: ['align', 'padding', 'width'],
+  },
+  {
+    type: 'badge_row',
+    label: 'Badges',
+    group: 'Basics',
+    icon: 'BadgeCheck',
+    description: 'Small pills, e.g. trust markers.',
+    allowedIn: EVERYWHERE,
+    controls: [],
+    items: {
+      key: 'items',
+      label: 'Badges',
+      itemLabel: 'Badge',
+      titleKey: 'text',
+      max: 12,
+      blank: { text: 'ISO certified' },
+      controls: [{ kind: 'text', key: 'text', label: 'Text', max: 60 }],
+    },
+    styleKeys: ['align', 'padding', 'gap'],
+  },
+  {
+    type: 'video',
+    label: 'Video',
+    group: 'Basics',
+    icon: 'PlaySquare',
+    description: 'YouTube or Vimeo embed. Only known hosts are allowed.',
+    allowedIn: EVERYWHERE,
+    controls: [
+      { kind: 'link', key: 'url', label: 'Video URL' },
+      { kind: 'text', key: 'title', label: 'Accessibility title', max: 140 },
+    ],
+    styleKeys: ['width', 'radius', 'padding', 'shadow'],
+  },
+
+  // ------------------------------------------------------------------ Content
+  {
+    type: 'feature_row',
+    label: 'Feature row',
+    group: 'Content',
+    icon: 'Layers',
+    description: 'Title, copy and image, alternating sides.',
+    allowedIn: ['page', 'section', 'container'],
+    controls: [
+      { kind: 'text', key: 'eyebrow', label: 'Eyebrow', max: 60 },
+      { kind: 'text', key: 'title', label: 'Title', max: 200 },
+      { kind: 'richtext', key: 'body', label: 'Body', max: 4000 },
+      { kind: 'image', key: 'image', label: 'Image' },
+      { kind: 'select', key: 'image_side', label: 'Image side', options: [
+        { value: 'left', label: 'Left' }, { value: 'right', label: 'Right' },
+      ] },
+      { kind: 'text', key: 'button_label', label: 'Button label', max: 60 },
+      { kind: 'link', key: 'button_href', label: 'Button link' },
+    ],
+    styleKeys: ['padding', 'gap', 'align'],
+  },
+  {
+    type: 'card_grid',
+    label: 'Card grid',
+    group: 'Content',
+    icon: 'Grid3x3',
+    description: 'Repeated cards in a responsive grid.',
+    allowedIn: ['page', 'section', 'container'],
+    controls: [
+      { kind: 'text', key: 'title', label: 'Section title', max: 200 },
+      { kind: 'textarea', key: 'subtitle', label: 'Section intro', max: 600 },
+      { kind: 'select', key: 'columns', label: 'Columns', options: [
+        { value: '2', label: '2' }, { value: '3', label: '3' }, { value: '4', label: '4' },
+      ] },
+    ],
+    items: {
+      key: 'items',
+      label: 'Cards',
+      itemLabel: 'Card',
+      titleKey: 'title',
+      max: 12,
+      blank: { title: 'Card title', body: 'Short supporting text.', image: '', href: '' },
+      controls: [
+        { kind: 'text', key: 'title', label: 'Title', max: 140 },
+        { kind: 'textarea', key: 'body', label: 'Body', max: 800, rows: 3 },
+        { kind: 'image', key: 'image', label: 'Image' },
+        { kind: 'link', key: 'href', label: 'Link (optional)' },
+      ],
+    },
+    styleKeys: ['padding', 'gap', 'width'],
+  },
+  {
+    type: 'pricing_table',
+    label: 'Pricing table',
+    group: 'Content',
+    icon: 'BadgeIndianRupee',
+    description: 'Plans with feature lists and a button each.',
+    allowedIn: ['page', 'section', 'container'],
+    controls: [
+      { kind: 'text', key: 'title', label: 'Section title', max: 200 },
+      { kind: 'textarea', key: 'subtitle', label: 'Intro', max: 600 },
+    ],
+    items: {
+      key: 'plans',
+      label: 'Plans',
+      itemLabel: 'Plan',
+      titleKey: 'name',
+      max: 5,
+      blank: { name: 'Starter', price: '₹0', period: 'per month', body: '', features: 'First feature\nSecond feature', href: '#', highlighted: false },
+      controls: [
+        { kind: 'text', key: 'name', label: 'Plan name', max: 60 },
+        { kind: 'text', key: 'price', label: 'Price', max: 40 },
+        { kind: 'text', key: 'period', label: 'Period', max: 40 },
+        { kind: 'textarea', key: 'body', label: 'Description', max: 400, rows: 2 },
+        { kind: 'textarea', key: 'features', label: 'Features (one per line)', max: 2000, rows: 6 },
+        { kind: 'link', key: 'href', label: 'Button link' },
+        { kind: 'toggle', key: 'highlighted', label: 'Highlight this plan' },
+      ],
+    },
+    styleKeys: ['padding', 'gap'],
+  },
+  {
+    type: 'gallery',
+    label: 'Gallery',
+    group: 'Content',
+    icon: 'Images',
+    description: 'Grid of images.',
+    allowedIn: ['page', 'section', 'container'],
+    controls: [
+      { kind: 'text', key: 'title', label: 'Section title', max: 200 },
+      { kind: 'select', key: 'columns', label: 'Columns', options: [
+        { value: '2', label: '2' }, { value: '3', label: '3' }, { value: '4', label: '4' },
+      ] },
+      { kind: 'select', key: 'ratio', label: 'Tile aspect', options: [
+        { value: '1/1', label: 'Square' }, { value: '4/3', label: '4:3' }, { value: '16/9', label: '16:9' },
+      ] },
+    ],
+    items: {
+      key: 'images',
+      label: 'Images',
+      itemLabel: 'Image',
+      titleKey: 'alt',
+      max: 24,
+      blank: { src: '', alt: '' },
+      controls: [
+        { kind: 'image', key: 'src', label: 'Source' },
+        { kind: 'text', key: 'alt', label: 'Alt text', max: 200 },
+        { kind: 'link', key: 'href', label: 'Link (optional)' },
+      ],
+    },
+    styleKeys: ['padding', 'gap', 'radius'],
+  },
+  {
+    type: 'faq',
+    label: 'FAQ',
+    group: 'Content',
+    icon: 'HelpCircle',
+    description: 'Expandable questions. Works without JavaScript.',
+    allowedIn: ['page', 'section', 'container'],
+    controls: [
+      { kind: 'text', key: 'title', label: 'Section title', max: 200 },
+    ],
+    items: {
+      key: 'items',
+      label: 'Questions',
+      itemLabel: 'Question',
+      titleKey: 'question',
+      max: 30,
+      blank: { question: 'What is included?', answer: 'Explain the answer here.' },
+      controls: [
+        { kind: 'text', key: 'question', label: 'Question', max: 240 },
+        { kind: 'textarea', key: 'answer', label: 'Answer', max: 2000, rows: 4 },
+      ],
+    },
+    styleKeys: ['padding', 'width', 'gap'],
+  },
+  {
+    type: 'stats',
+    label: 'Stats',
+    group: 'Content',
+    icon: 'BarChart3',
+    description: 'Numbers that carry weight: years, clients, uptime.',
+    allowedIn: ['page', 'section', 'container'],
+    controls: [
+      { kind: 'select', key: 'columns', label: 'Columns', options: [
+        { value: '2', label: '2' }, { value: '3', label: '3' }, { value: '4', label: '4' },
+      ] },
+    ],
+    items: {
+      key: 'items',
+      label: 'Stats',
+      itemLabel: 'Stat',
+      titleKey: 'label',
+      max: 6,
+      blank: { value: '120', label: 'Clients served' },
+      controls: [
+        { kind: 'text', key: 'value', label: 'Value', max: 30 },
+        { kind: 'text', key: 'label', label: 'Label', max: 80 },
+      ],
+    },
+    styleKeys: ['padding', 'gap', 'align'],
+  },
+  {
+    type: 'team',
+    label: 'Team',
+    group: 'Content',
+    icon: 'Users',
+    description: 'People with photos and roles.',
+    allowedIn: ['page', 'section', 'container'],
+    controls: [
+      { kind: 'text', key: 'title', label: 'Section title', max: 200 },
+      { kind: 'select', key: 'columns', label: 'Columns', options: [
+        { value: '2', label: '2' }, { value: '3', label: '3' }, { value: '4', label: '4' },
+      ] },
+    ],
+    items: {
+      key: 'members',
+      label: 'Members',
+      itemLabel: 'Member',
+      titleKey: 'name',
+      max: 16,
+      blank: { name: 'Person name', role: 'Role', image: '', bio: '' },
+      controls: [
+        { kind: 'text', key: 'name', label: 'Name', max: 80 },
+        { kind: 'text', key: 'role', label: 'Role', max: 80 },
+        { kind: 'image', key: 'image', label: 'Photo' },
+        { kind: 'textarea', key: 'bio', label: 'Short bio', max: 400, rows: 3 },
+      ],
+    },
+    styleKeys: ['padding', 'gap'],
+  },
+  {
+    type: 'testimonials',
+    label: 'Testimonials',
+    group: 'Content',
+    icon: 'MessageSquareQuote',
+    description: 'Customer quotes.',
+    allowedIn: ['page', 'section', 'container'],
+    controls: [
+      { kind: 'text', key: 'title', label: 'Section title', max: 200 },
+      { kind: 'select', key: 'columns', label: 'Columns', options: [
+        { value: '1', label: '1' }, { value: '2', label: '2' }, { value: '3', label: '3' },
+      ] },
+    ],
+    items: {
+      key: 'items',
+      label: 'Quotes',
+      itemLabel: 'Quote',
+      titleKey: 'author',
+      max: 12,
+      blank: { quote: 'They delivered on time and the reporting was clear.', author: 'Customer name', role: 'Job title, Company', rating: 5 },
+      controls: [
+        { kind: 'textarea', key: 'quote', label: 'Quote', max: 900, rows: 4 },
+        { kind: 'text', key: 'author', label: 'Author', max: 80 },
+        { kind: 'text', key: 'role', label: 'Role', max: 80 },
+        { kind: 'number', key: 'rating', label: 'Stars', min: 0, max: 5 },
+      ],
+    },
+    styleKeys: ['padding', 'gap'],
+  },
+  {
+    type: 'cta_banner',
+    label: 'Call to action',
+    group: 'Content',
+    icon: 'Megaphone',
+    description: 'High-contrast band pushing one action.',
+    allowedIn: ['page', 'section'],
+    controls: [
+      { kind: 'text', key: 'title', label: 'Title', max: 200 },
+      { kind: 'textarea', key: 'body', label: 'Body', max: 600, rows: 3 },
+      { kind: 'text', key: 'button_label', label: 'Button label', max: 60 },
+      { kind: 'link', key: 'button_href', label: 'Button link' },
+      { kind: 'color', key: 'background', label: 'Background' },
+    ],
+    styleKeys: ['padding', 'align', 'radius'],
+  },
+
+  // ------------------------------------------------------------------- Engage
+  {
+    type: 'navbar',
+    label: 'Navigation',
+    group: 'Engage',
+    icon: 'Menu',
+    description: 'Site header with links and an optional button.',
+    allowedIn: ['page'],
+    controls: [
+      { kind: 'text', key: 'brand', label: 'Brand text', max: 60 },
+      { kind: 'image', key: 'logo', label: 'Logo (optional)' },
+      { kind: 'toggle', key: 'sticky', label: 'Stick on scroll' },
+      { kind: 'text', key: 'button_label', label: 'Button label', max: 60 },
+      { kind: 'link', key: 'button_href', label: 'Button link' },
+    ],
+    items: {
+      key: 'links',
+      label: 'Menu links',
+      itemLabel: 'Link',
+      titleKey: 'label',
+      max: 8,
+      blank: { label: 'Home', href: '/' },
+      controls: [
+        { kind: 'text', key: 'label', label: 'Label', max: 40 },
+        { kind: 'link', key: 'href', label: 'Link' },
+      ],
+    },
+    styleKeys: ['background', 'color', 'padding'],
+  },
+  {
+    type: 'footer',
+    label: 'Footer',
+    group: 'Engage',
+    icon: 'AlignJustify',
+    description: 'Closing band with links and fine print.',
+    allowedIn: ['page'],
+    controls: [
+      { kind: 'text', key: 'brand', label: 'Brand text', max: 60 },
+      { kind: 'textarea', key: 'blurb', label: 'Short description', max: 400, rows: 3 },
+      { kind: 'text', key: 'copyright', label: 'Copyright line', max: 160 },
+    ],
+    items: {
+      key: 'links',
+      label: 'Links',
+      itemLabel: 'Link',
+      titleKey: 'label',
+      max: 12,
+      blank: { label: 'Contact', href: '/contact' },
+      controls: [
+        { kind: 'text', key: 'label', label: 'Label', max: 40 },
+        { kind: 'link', key: 'href', label: 'Link' },
+      ],
+    },
+    styleKeys: ['background', 'color', 'padding', 'gap'],
+  },
+  {
+    type: 'social_links',
+    label: 'Social links',
+    group: 'Engage',
+    icon: 'Share2',
+    description: 'Profile links. Only recognised networks render an icon.',
+    allowedIn: EVERYWHERE,
+    controls: [],
+    items: {
+      key: 'items',
+      label: 'Networks',
+      itemLabel: 'Network',
+      titleKey: 'network',
+      max: 8,
+      blank: { network: 'instagram', href: 'https://instagram.com/' },
+      controls: [
+        { kind: 'select', key: 'network', label: 'Network', options: [
+          { value: 'instagram', label: 'Instagram' }, { value: 'facebook', label: 'Facebook' },
+          { value: 'linkedin', label: 'LinkedIn' }, { value: 'x', label: 'X' },
+          { value: 'youtube', label: 'YouTube' }, { value: 'whatsapp', label: 'WhatsApp' },
+        ] },
+        { kind: 'link', key: 'href', label: 'Profile URL' },
+      ],
+    },
+    styleKeys: ['align', 'gap', 'padding'],
+  },
+  {
+    type: 'contact_details',
+    label: 'Contact details',
+    group: 'Engage',
+    icon: 'Contact',
+    description: 'Address, phone, email and hours.',
+    allowedIn: EVERYWHERE,
+    controls: [
+      { kind: 'text', key: 'address', label: 'Address', max: 300 },
+      { kind: 'text', key: 'phone', label: 'Phone', max: 40 },
+      { kind: 'text', key: 'email', label: 'Email', max: 120 },
+      { kind: 'textarea', key: 'hours', label: 'Opening hours', max: 400, rows: 3 },
+      { kind: 'text', key: 'title', label: 'Heading', max: 120 },
+    ],
+    styleKeys: ['align', 'padding', 'width'],
+  },
+  {
+    type: 'map',
+    label: 'Map',
+    group: 'Engage',
+    icon: 'MapPin',
+    description: 'A map for a place or address. No API key needed.',
+    allowedIn: EVERYWHERE,
+    controls: [
+      { kind: 'text', key: 'query', label: 'Place or address', max: 240 },
+      { kind: 'number', key: 'zoom', label: 'Zoom', min: 3, max: 19 },
+      { kind: 'number', key: 'height', label: 'Height', min: 160, max: 800, suffix: 'px' },
+    ],
+    styleKeys: ['width', 'radius', 'padding'],
+  },
+  {
+    type: 'newsletter_form',
+    label: 'Newsletter sign-up',
+    group: 'Engage',
+    icon: 'MailPlus',
+    description: 'Single email field that records a lead.',
+    allowedIn: EVERYWHERE,
+    controls: [
+      { kind: 'text', key: 'title', label: 'Heading', max: 140 },
+      { kind: 'text', key: 'placeholder', label: 'Field placeholder', max: 60 },
+      { kind: 'text', key: 'button_label', label: 'Button label', max: 40 },
+      { kind: 'text', key: 'success', label: 'Thanks message', max: 200 },
+      { kind: 'entity', key: 'form_id', label: 'Save responses to', entity: 'form', optional: true },
+    ],
+    styleKeys: ['align', 'padding', 'width'],
+  },
+
+  // ---------------------------------------------------------------- Live data
+  {
+    type: 'form_embed',
+    label: 'Form',
+    group: 'Live data',
+    icon: 'FileInput',
+    description: 'A Yourbiss form, live and submittable on the page.',
+    allowedIn: EVERYWHERE,
+    controls: [
+      { kind: 'entity', key: 'form_id', label: 'Which form', entity: 'form' },
+      { kind: 'toggle', key: 'show_title', label: 'Show form title' },
+      { kind: 'number', key: 'height', label: 'Frame height', min: 240, max: 3000, suffix: 'px' },
+    ],
+    needsOptions: ['forms'],
+    styleKeys: ['width', 'padding', 'align'],
+  },
+  {
+    type: 'booking_embed',
+    label: 'Booking',
+    group: 'Live data',
+    icon: 'CalendarClock',
+    description: 'A live booking calendar for one service.',
+    allowedIn: EVERYWHERE,
+    controls: [
+      { kind: 'entity', key: 'service_id', label: 'Which service', entity: 'booking_service' },
+      { kind: 'entity', key: 'staff_id', label: 'Limit to staff member', entity: 'staff', optional: true },
+      { kind: 'number', key: 'height', label: 'Frame height', min: 320, max: 3000, suffix: 'px' },
+    ],
+    needsOptions: ['services', 'staff'],
+    styleKeys: ['width', 'padding', 'align'],
+  },
+  {
+    type: 'product_grid',
+    label: 'Product list',
+    group: 'Live data',
+    icon: 'ShoppingBag',
+    description: 'Shows live products and prices once the Inventory app is added.',
+    allowedIn: EVERYWHERE,
+    controls: [
+      { kind: 'text', key: 'title', label: 'Section title', max: 200 },
+      { kind: 'select', key: 'source', label: 'Source', options: [
+        { value: 'inventory', label: 'Inventory' }, { value: 'manual', label: 'Typed here' },
+      ] },
+      { kind: 'select', key: 'columns', label: 'Columns', options: [
+        { value: '2', label: '2' }, { value: '3', label: '3' }, { value: '4', label: '4' },
+      ] },
+    ],
+    items: {
+      key: 'products',
+      label: 'Products (when typed manually)',
+      itemLabel: 'Product',
+      titleKey: 'name',
+      max: 24,
+      blank: { name: 'Product', price: '₹0', body: '', image: '' },
+      controls: [
+        { kind: 'text', key: 'name', label: 'Name', max: 120 },
+        { kind: 'text', key: 'price', label: 'Price', max: 40 },
+        { kind: 'textarea', key: 'body', label: 'Description', max: 500, rows: 3 },
+        { kind: 'image', key: 'image', label: 'Image' },
+      ],
+    },
+    styleKeys: ['padding', 'gap'],
+  },
+];
+
+export const REGISTRY: Record<BlockType, BlockDefinition> = BLOCK_DEFS.reduce(
+  (acc, def) => {
+    acc[def.type] = def;
+    return acc;
+  },
+  {} as Record<BlockType, BlockDefinition>,
+);
+
+export const GROUPS: BlockDefinition['group'][] = ['Structure', 'Basics', 'Content', 'Engage', 'Live data'];
+
+export function paletteFor(group: BlockDefinition['group']): BlockDefinition[] {
+  return BLOCK_DEFS.filter((d) => d.group === group);
+}
+
+export const CONTAINER_BLOCK_TYPES = BLOCK_DEFS.filter((d) => d.isContainer).map((d) => d.type);

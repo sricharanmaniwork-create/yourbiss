@@ -1,0 +1,26 @@
+node_modules/
+.next/
+out/
+build/
+
+.env
+.env.local
+.env*.local
+
+.vercel
+next-env.d.ts
+*.tsbuildinfo
+
+.DS_Store
+Thumbs.db
+desktop.ini
+
+supabase/.branches/
+supabase/.temp/
+
+coverage/
+*.log
+npm-debug.log*
+
+# Local-only SQL scratch space (throwaway checkers, not part of the app).
+scratch/

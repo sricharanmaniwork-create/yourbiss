@@ -1,0 +1,7 @@
+# The repo is authored on Windows and built on Linux (Vercel). Locking text to LF
+# keeps every file byte-identical on both sides, so a checkout never shows as
+# modified and line endings never leak into a diff.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary

@@ -1,0 +1,81 @@
+import {
+  BadgeCheck,
+  BadgeIndianRupee,
+  CalendarClock,
+  ChartColumn,
+  CircleQuestionMark,
+  Columns2,
+  Contact,
+  FileInput,
+  Grid3x3,
+  Heading,
+  Image,
+  Images,
+  Layers,
+  LayoutTemplate,
+  List,
+  ListChecks,
+  MailPlus,
+  MapPin,
+  Megaphone,
+  Menu,
+  MessageSquareQuote,
+  Minus,
+  MoveVertical,
+  Quote,
+  RectangleHorizontal,
+  Share2,
+  ShoppingBag,
+  Square,
+  SquarePlay,
+  TextAlignJustify,
+  Type,
+  Users,
+  type LucideIcon,
+} from 'lucide-react';
+
+/**
+ * Block definitions name their palette icon as a string, because the definition
+ * table is data. This is the one place that turns that string into a component,
+ * and it maps onto the names lucide exports today rather than the older aliases
+ * the registry text still carries.
+ */
+const ICONS: Record<string, LucideIcon> = {
+  LayoutPanelOpen: LayoutTemplate,
+  Columns2,
+  Square,
+  Heading,
+  Type,
+  Image,
+  RectangleHorizontal,
+  ListChecks,
+  Minus,
+  MoveVertical,
+  List,
+  Quote,
+  BadgeCheck,
+  PlaySquare: SquarePlay,
+  Layers,
+  Grid3x3,
+  BadgeIndianRupee,
+  Images,
+  HelpCircle: CircleQuestionMark,
+  BarChart3: ChartColumn,
+  Users,
+  MessageSquareQuote,
+  Megaphone,
+  Menu,
+  AlignJustify: TextAlignJustify,
+  Share2,
+  Contact,
+  MapPin,
+  MailPlus,
+  FileInput,
+  CalendarClock,
+  ShoppingBag,
+};
+
+export function BlockIcon({ name, size = 15, className }: { name: string; size?: number; className?: string }) {
+  const Icon = ICONS[name] ?? Square;
+  return <Icon size={size} className={className} aria-hidden="true" />;
+}
