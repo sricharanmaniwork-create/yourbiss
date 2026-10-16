@@ -58,7 +58,20 @@ export const getSession = cache(async (): Promise<Session | null> => {
     supabase.from('user_profiles').select('*').eq('user_id', user.id).maybeSingle(),
   ]);
 
-  if (membersResult.error) throw new Error(membersResult.error.message);
+  if (membersResult.error) {
+    // A landing page or workspace layout that throws becomes a production render
+    // failure, and React deliberately strips the message before it reaches the
+    // browser. The only copy of the real Postgres error is here, in the runtime
+    // log, so it has to be written down rather than swallowed by the throw.
+    console.error('[yourbiss] workspace membership query failed', {
+      user_id: user.id,
+      code: membersResult.error.code,
+      message: membersResult.error.message,
+      hint: membersResult.error.hint ?? undefined,
+      details: membersResult.error.details ?? undefined,
+    });
+    throw new Error(`Could not read your workspaces: ${membersResult.error.message}`);
+  }
 
   const workspaces: WorkspaceSummary[] = (membersResult.data ?? [])
     .map((row) => {
@@ -99,7 +112,15 @@ export const getWorkspace = cache(async (): Promise<WorkspaceContext | null> => 
     supabase.from('orgs').select('*').eq('id', org.id).maybeSingle(),
     supabase.from('org_apps').select('app_key, status').eq('org_id', org.id),
   ]);
-  if (orgResult.error) throw new Error(orgResult.error.message);
+  if (orgResult.error) {
+    console.error('[yourbiss] active workspace query failed', {
+      org_id: org.id,
+      user_id: session.user.id,
+      code: orgResult.error.code,
+      message: orgResult.error.message,
+    });
+    throw new Error(`Could not read this workspace: ${orgResult.error.message}`);
+  }
   if (!orgResult.data) return null;
 
   const apps = Object.fromEntries(APP_KEYS.map((key) => [key, false])) as Record<AppKey, boolean>;
