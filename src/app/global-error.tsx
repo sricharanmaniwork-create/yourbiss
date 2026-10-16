@@ -6,6 +6,12 @@
  * carries no shared components, since those depend on the layout that broke.
  */
 export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+  // In a production build React replaces the real message with "Minified React
+  // error #441" to avoid leaking internals, and puts the truth in the server log
+  // under the same digest. Without this line the digest is invisible to whoever
+  // is looking at the browser, which is the only person who can report the bug.
+  const digestNote = error.digest ? `\n\ndigest ${error.digest} — the full message is in the server log at this timestamp` : '';
+
   return (
     <html lang="en">
       <body style={{ margin: 0, background: '#f4f5f7', color: '#111827', font: '14px/1.5 Inter, system-ui, sans-serif' }}>
@@ -28,6 +34,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
               }}
             >
               {error.message}
+              {digestNote}
             </pre>
             <button
               type="button"
