@@ -136,6 +136,40 @@
   margin-top: 0;
 }
 
+/*
+ * Column counts for the grid blocks (card_grid, gallery, stats, team,
+ * testimonials, product_grid) are chosen in the inspector and arrive here as
+ * `data-cols`. The tiers are *container* widths, not viewport widths, because
+ * the builder previews a phone by shrinking the block's container: a media query
+ * would still report the real desktop width inside that 390px preview and show
+ * four cramped columns the customer will never get.
+ */
+.yb-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+@container (min-width: 560px) {
+  .yb-grid[data-cols='2'],
+  .yb-grid[data-cols='3'],
+  .yb-grid[data-cols='4'] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 800px) {
+  .yb-grid[data-cols='3'],
+  .yb-grid[data-cols='4'] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 1040px) {
+  .yb-grid[data-cols='4'] {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
 .prose-block p {
   margin: 0 0 12px;
 }

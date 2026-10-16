@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { CalendarDays, FileText, Globe, Package, ShoppingCart, Users, Workflow } from 'lucide-react';
 import { YourbissMark } from '@/components/brand/mark';
+import { BLOCK_DEFS } from '@/lib/blocks/registry';
 import { getSession } from '@/lib/workspace';
 
 export const metadata: Metadata = {
@@ -15,7 +16,7 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic';
 
 const APPS = [
-  { name: 'Websites', icon: Globe, body: 'A blank canvas, 34 blocks, and a publish button that versions the whole site.', live: true },
+  { name: 'Websites', icon: Globe, body: `A blank canvas, ${BLOCK_DEFS.length} blocks, and a publish button that versions the whole site.`, live: true },
   { name: 'Bookings', icon: CalendarDays, body: 'Services, staff calendars, breaks and timezones. Customers pick a slot that is genuinely free.', live: true },
   { name: 'Forms', icon: FileText, body: 'Conditional logic, file intake, responses you can export. Embed it in any page you build.', live: true },
   { name: 'Store', icon: ShoppingCart, body: 'Product pages and carts built from the same canvas, priced from your inventory.', live: false },

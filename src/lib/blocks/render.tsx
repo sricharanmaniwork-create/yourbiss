@@ -41,7 +41,15 @@ function text(value: unknown): string {
 }
 
 function num(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : fallback;
+  // A select stores its value as a string, so `level: '3'` and `columns: '4'`
+  // arrive as text. Reading only real numbers made every numeric choice in the
+  // inspector silently fall back to the default.
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
 }
 
 function flag(value: unknown): boolean {
@@ -288,6 +296,27 @@ function mapFrame(query: string, zoom: number): string {
 // --- the block switch -------------------------------------------------------
 
 /**
+ * A repeat grid whose column count is chosen in the inspector.
+ *
+ * The wrapper is a *container query* context rather than the grid itself, and the
+ * count lives in `data-cols` with the sizing in globals.css, because the builder
+ * previews a phone by shrinking a container while the real viewport stays at
+ * desktop width. A media query would then refuse to collapse the grid in the
+ * canvas, and an inline `grid-template-columns` would outrank the responsive
+ * rules that make it collapse.
+ */
+function Grid({ columns, gap, children }: { columns: unknown; gap: string; children: ReactNode }) {
+  const count = Math.max(1, Math.min(4, Math.round(num(columns, 3))));
+  return (
+    <div style={{ containerType: 'inline-size' }}>
+      <div className="yb-grid" data-cols={count} style={{ gap }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Content only: no outer box, no spacing. The walker that calls this owns the
  * wrapper element so the canvas can put a selection frame around the same markup
  * the live page produces.
@@ -526,7 +555,6 @@ export function renderBlock(node: BlockNode, ctx: RenderContext): ReactNode {
     }
 
     case 'card_grid': {
-      const columns = Math.max(1, Math.min(4, num(p.columns, 3)));
       return (
         <div style={{ ...styleFor(styles, theme) }}>
           {(text(p.title) || text(p.subtitle)) && (
@@ -535,7 +563,7 @@ export function renderBlock(node: BlockNode, ctx: RenderContext): ReactNode {
               {text(p.subtitle) && <p style={{ margin: '10px 0 0', color: theme.colors?.muted ?? '#6B7280', maxWidth: '62ch' }}>{text(p.subtitle)}</p>}
             </div>
           )}
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(${Math.floor(300 / columns)}px, 1fr))`, gap: '20px' }}>
+          <Grid columns={p.columns} gap="20px">
             {items(p.items).map((card, index) => {
               const inner = (
                 <div
@@ -572,7 +600,7 @@ export function renderBlock(node: BlockNode, ctx: RenderContext): ReactNode {
                 </div>
               );
             })}
-          </div>
+          </Grid>
         </div>
       );
     }
@@ -642,7 +670,7 @@ export function renderBlock(node: BlockNode, ctx: RenderContext): ReactNode {
       return (
         <div style={{ ...styleFor(styles, theme) }}>
           {text(p.title) && <h2 style={{ margin: '0 0 20px', fontSize: '27px', fontFamily: headingFont(theme) }}>{text(p.title)}</h2>}
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(220px, 1fr))`, gap: '14px' }}>
+          <Grid columns={p.columns} gap="14px">
             {images.map((image, index) => {
               const tile = <Figure src={imageSrc(image.src)} alt={text(image.alt)} ratio={text(p.ratio) || '1/1'} radius={theme.radius} />;
               const href = siteHref(image.href, ctx);
@@ -658,7 +686,7 @@ export function renderBlock(node: BlockNode, ctx: RenderContext): ReactNode {
                 </div>
               );
             })}
-          </div>
+          </Grid>
         </div>
       );
     }
@@ -683,22 +711,17 @@ export function renderBlock(node: BlockNode, ctx: RenderContext): ReactNode {
 
     case 'stats':
       return (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(auto-fit, minmax(${Math.floor(240 / Math.max(1, num(p.columns, 4)))}px, 1fr))`,
-            gap: '20px',
-            ...styleFor(styles, theme),
-          }}
-        >
-          {items(p.items).map((stat, index) => (
-            <div key={index}>
-              <p style={{ margin: 0, fontSize: '40px', fontWeight: 700, lineHeight: 1.1, fontFamily: headingFont(theme), color: colorValue(styles.color, theme) ?? theme.colors?.primary ?? '#2E6BE6' }}>
-                {text(stat.value)}
-              </p>
-              <p style={{ margin: '6px 0 0', fontSize: '14px', color: theme.colors?.muted ?? '#6B7280' }}>{text(stat.label)}</p>
-            </div>
-          ))}
+        <div style={{ ...styleFor(styles, theme) }}>
+          <Grid columns={p.columns} gap="20px">
+            {items(p.items).map((stat, index) => (
+              <div key={index}>
+                <p style={{ margin: 0, fontSize: '40px', fontWeight: 700, lineHeight: 1.1, fontFamily: headingFont(theme), color: colorValue(styles.color, theme) ?? theme.colors?.primary ?? '#2E6BE6' }}>
+                  {text(stat.value)}
+                </p>
+                <p style={{ margin: '6px 0 0', fontSize: '14px', color: theme.colors?.muted ?? '#6B7280' }}>{text(stat.label)}</p>
+              </div>
+            ))}
+          </Grid>
         </div>
       );
 
@@ -706,7 +729,7 @@ export function renderBlock(node: BlockNode, ctx: RenderContext): ReactNode {
       return (
         <div style={{ ...styleFor(styles, theme) }}>
           {text(p.title) && <h2 style={{ margin: '0 0 22px', fontSize: '27px', fontFamily: headingFont(theme) }}>{text(p.title)}</h2>}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '22px' }}>
+          <Grid columns={p.columns} gap="22px">
             {items(p.members).map((member, index) => (
               <div key={index} style={{ textAlign: 'center' }}>
                 {imageSrc(member.image) ? (
@@ -736,7 +759,7 @@ export function renderBlock(node: BlockNode, ctx: RenderContext): ReactNode {
                 {text(member.bio) && <p style={{ margin: '8px 0 0', fontSize: '13.5px', lineHeight: 1.55, color: theme.colors?.muted ?? '#6B7280' }}>{text(member.bio)}</p>}
               </div>
             ))}
-          </div>
+          </Grid>
         </div>
       );
 
@@ -744,7 +767,7 @@ export function renderBlock(node: BlockNode, ctx: RenderContext): ReactNode {
       return (
         <div style={{ ...styleFor(styles, theme) }}>
           {text(p.title) && <h2 style={{ margin: '0 0 22px', fontSize: '27px', fontFamily: headingFont(theme) }}>{text(p.title)}</h2>}
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(280px, 1fr))`, gap: '18px' }}>
+          <Grid columns={p.columns} gap="18px">
             {items(p.items).map((entry, index) => (
               <figure
                 key={index}
@@ -767,7 +790,7 @@ export function renderBlock(node: BlockNode, ctx: RenderContext): ReactNode {
                 </figcaption>
               </figure>
             ))}
-          </div>
+          </Grid>
         </div>
       );
 
@@ -1052,7 +1075,7 @@ export function renderBlock(node: BlockNode, ctx: RenderContext): ReactNode {
           {p.source === 'inventory' ? (
             <EmptyNote label="Product lists come from the Inventory app. Until it is added, switch this block to typed products." />
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(240px, 1fr))`, gap: '18px' }}>
+            <Grid columns={p.columns} gap="18px">
               {products.map((product, index) => (
                 <article key={index} style={{ border: `1px solid ${theme.colors?.border ?? '#E5E7EB'}`, borderRadius: theme.radius ?? '10px', overflow: 'hidden', background: theme.colors?.surface ?? '#FFFFFF' }}>
                   {imageSrc(product.image) && <Figure src={imageSrc(product.image)} alt={text(product.name)} ratio="4/3" radius="0px" />}
@@ -1063,7 +1086,7 @@ export function renderBlock(node: BlockNode, ctx: RenderContext): ReactNode {
                   </div>
                 </article>
               ))}
-            </div>
+            </Grid>
           )}
         </div>
       );
@@ -1092,10 +1115,18 @@ export function containerStyle(node: BlockNode, ctx: RenderContext): { outer: CS
 
   if (node.type === 'columns') {
     const count = Math.max(2, Math.min(4, num(node.props?.count, 2)));
+    // "Stack vertically" needs no media query: each track asks for a real width,
+    // so the grid loses columns as the page narrows and reaches one on a phone.
+    // "Keep side by side" pins the count instead, which is the point of it.
+    const content = Number.parseInt(String(theme.max_width ?? '1200px'), 10) || 1200;
+    const tracks =
+      text(node.props?.stack_on_mobile) === 'scroll'
+        ? `repeat(${count}, minmax(0, 1fr))`
+        : `repeat(auto-fit, minmax(min(100%, ${Math.floor((content - 60) / count)}px), 1fr))`;
     return {
       outer: {
         display: 'grid',
-        gridTemplateColumns: `repeat(${count}, minmax(0, 1fr))`,
+        gridTemplateColumns: tracks,
         gap: styleFor(styles, theme).gap ?? '24px',
         ...styleFor({ ...styles, gap: undefined }, theme),
       },
