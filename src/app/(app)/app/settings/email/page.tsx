@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { requireWorkspace } from '@/lib/workspace';
-import { getEmailSettings, recentEmailLog } from '@/lib/repo';
+import { getEmailSettings, listEmailTemplates, recentEmailLog } from '@/lib/repo';
+import { TEMPLATE_KEYS } from '@/lib/mail/overrides';
 import { optionalEnv } from '@/lib/env';
 import { AdminOnly } from '@/components/settings/admin-only';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
@@ -8,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { EmailSettingsForm } from '@/components/settings/email-settings-form';
+import { EmailTemplates } from '@/components/settings/email-templates';
 import { formatInZone } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Settings · Email' };
@@ -18,9 +20,10 @@ export default async function EmailSettingsPage() {
     return <AdminOnly action="Changing how booking and form mail is sent" />;
   }
 
-  const [settings, log] = await Promise.all([
+  const [settings, log, templates] = await Promise.all([
     getEmailSettings(workspace.org.id),
     recentEmailLog(workspace.org.id, 15),
+    listEmailTemplates(workspace.org.id),
   ]);
 
   const platformKey = optionalEnv('RESEND_API_KEY');
@@ -56,6 +59,25 @@ export default async function EmailSettingsPage() {
             sentToday={settings?.sent_today ?? 0}
             sentOn={settings?.sent_on ?? null}
             platformResendKey={Boolean(platformKey)}
+          />
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader
+          title="Letter wording"
+          description="Replace what Yourbiss writes with your own sentence for any letter this workspace sends. Remove it again and the default goes back."
+        />
+        <CardBody>
+          <EmailTemplates
+            orgId={workspace.org.id}
+            letters={TEMPLATE_KEYS}
+            saved={templates.map((template) => ({
+              key: template.key,
+              subject: template.subject,
+              html_body: template.html_body,
+              enabled: template.enabled,
+            }))}
           />
         </CardBody>
       </Card>

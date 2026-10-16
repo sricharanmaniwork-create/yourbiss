@@ -7,6 +7,7 @@ import { assertAdmin, createAdminClient } from '@/lib/supabase/admin';
 import { encryptSecret } from '@/lib/crypto';
 import { optionalEnv } from '@/lib/env';
 import { verifySmtp } from '@/lib/mail';
+import { OVERRIDABLE_KEYS } from '@/lib/mail/overrides';
 import { inviteMail, mailBase } from '@/lib/mail/templates';
 import { logActivity } from '@/lib/actions/activity';
 import { isValidSlug } from '@/lib/utils';
@@ -200,16 +201,18 @@ export async function inviteMember(orgId: string, input: z.input<typeof inviteSc
       (inviterData as unknown as { display_name: string } | null)?.display_name || 'A teammate';
 
     const { sendMail } = await import('@/lib/mail');
+    const acceptUrl = new URL(`/invite/${token}`, optionalEnv('NEXT_PUBLIC_SITE_URL') ?? 'http://localhost:3000').toString();
     await sendMail({
       orgId,
       to: parsed.data.email,
-      template: 'invite',
+      template: 'invite_member',
       mail: inviteMail(mailBase(orgRow.name), {
         inviterName,
         orgName: orgRow.name,
         role: parsed.data.role,
-        acceptUrl: new URL(`/invite/${token}`, optionalEnv('NEXT_PUBLIC_SITE_URL') ?? 'http://localhost:3000').toString(),
+        acceptUrl,
       }),
+      tokens: { inviter_name: inviterName, org_name: orgRow.name, role: parsed.data.role, accept_url: acceptUrl },
     });
   }
 
@@ -465,4 +468,88 @@ export async function testEmailConnection(orgId: string, to: string): Promise<Ac
 
   revalidatePath('/app/settings/email');
   return outcome.ok ? { ok: true } : { ok: false, error: outcome.error ?? 'The connection failed' };
+}
+
+// --- the workspace's own wording of a letter --------------------------------
+
+const templateSchema = z.object({
+  orgId: z.string().uuid(),
+  key: z.string().max(40),
+  subject: z
+    .string()
+    .trim()
+    .min(1, 'A letter needs a subject')
+    .max(200, 'Keep the subject under 200 characters'),
+  body: z
+    .string()
+    .trim()
+    .min(1, 'Write the letter, or remove it to use ours again')
+    .max(20000, 'That letter is too long to send'),
+  enabled: z.boolean(),
+});
+
+/**
+ * Save or switch off one letter.
+ *
+ * The body is stored in `html_body` and read back as text: `renderOverride()` escapes it, so
+ * what a customer receives is the paragraph they wrote and nothing else. That is why this
+ * action does not have to decide which tags are safe — no tag survives the round trip.
+ */
+export async function saveEmailTemplate(input: z.input<typeof templateSchema>): Promise<ActionState> {
+  const parsed = templateSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: 'Check the highlighted fields', fields: fieldErrorsFrom(parsed.error.issues) };
+  if (!OVERRIDABLE_KEYS.has(parsed.data.key)) return { ok: false, error: 'That letter cannot be rewritten' };
+
+  const supabase = await createClient();
+  const actor = await assertAdmin(supabase, parsed.data.orgId).catch(() => null);
+  if (!actor) return { ok: false, error: 'Only an owner or admin can change the wording of a letter' };
+
+  const { error } = await supabase.from('email_templates').upsert(
+    {
+      org_id: parsed.data.orgId,
+      key: parsed.data.key,
+      subject: parsed.data.subject,
+      html_body: parsed.data.body,
+      text_body: null,
+      enabled: parsed.data.enabled,
+    },
+    { onConflict: 'org_id,key' },
+  );
+  if (error) return { ok: false, error: 'The letter could not be saved' };
+
+  revalidatePath('/app/settings/email');
+  await logActivity(supabase, {
+    orgId: parsed.data.orgId,
+    actorId: actor.userId,
+    entityType: 'email_template',
+    entityId: parsed.data.key,
+    action: 'updated',
+    summary: parsed.data.enabled
+      ? `Wrote their own ${parsed.data.key.replace(/_/g, ' ')}`
+      : `Saved a paused ${parsed.data.key.replace(/_/g, ' ')}`,
+  });
+  return { ok: true };
+}
+
+/** Back to ours: the row goes, because a missing row is what "use the default" means. */
+export async function deleteEmailTemplate(orgId: string, key: string): Promise<ActionState> {
+  if (!OVERRIDABLE_KEYS.has(key)) return { ok: false, error: 'That letter cannot be rewritten' };
+
+  const supabase = await createClient();
+  const actor = await assertAdmin(supabase, orgId).catch(() => null);
+  if (!actor) return { ok: false, error: 'Only an owner or admin can change the wording of a letter' };
+
+  const { error } = await supabase.from('email_templates').delete().eq('org_id', orgId).eq('key', key);
+  if (error) return { ok: false, error: 'The letter could not be removed' };
+
+  revalidatePath('/app/settings/email');
+  await logActivity(supabase, {
+    orgId,
+    actorId: actor.userId,
+    entityType: 'email_template',
+    entityId: key,
+    action: 'deleted',
+    summary: `Sent the ${key.replace(/_/g, ' ')} back to the default wording`,
+  });
+  return { ok: true };
 }

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { consume, clientKey } from '@/lib/rate-limit';
-import { EMAIL_RE, authRedirect, readRaw, readString } from '@/lib/auth-common';
+import { EMAIL_RE, authRedirect, readRaw, readString, weakPassword } from '@/lib/auth-common';
 
 export const runtime = 'nodejs';
 
@@ -13,11 +13,8 @@ export async function POST(request: NextRequest) {
 
   if (displayName.length < 2) return authRedirect(request, '/signup', { error: 'name' });
   if (!EMAIL_RE.test(email)) return authRedirect(request, '/signup', { error: 'email' });
-  if (password.length < 8) return authRedirect(request, '/signup', { error: 'password' });
   // A password of one repeated character passes a length check and nothing else.
-  if (/^(\D)\1+$/.test(password) || /^\d+$/.test(password)) {
-    return authRedirect(request, '/signup', { error: 'password' });
-  }
+  if (weakPassword(password)) return authRedirect(request, '/signup', { error: 'password' });
 
   const limit = await consume(`signup:${clientKey(request.headers)}`, 10, 3600);
   if (!limit.allowed) return authRedirect(request, '/signup', { error: 'throttled' });

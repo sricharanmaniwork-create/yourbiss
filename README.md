@@ -67,11 +67,20 @@ still succeeds. A booking must never roll back because a mail host timed out.
   Supabase's own SMTP sender (Authentication → SMTP) to Resend's SMTP relay
   (`smtp.resend.com`, port 465, username `resend`, password your API key). Resend requires a
   verified sending domain before it accepts mail for one.
+* Sign-up confirmation and "Forgot your password?" both land on `/auth/callback`, so the only
+  Redirect URL the project needs allow-listed is `https://<deployment host>/auth/callback`.
+  A recovery link exchanges for a session and then opens `/reset-password`, where the visitor
+  types the new password; the app never sees, stores or transports a password hash.
 * Workspace credentials are encrypted with `APP_ENCRYPTION_KEY` and stored in
   `org_email_passwords`; Settings → Email can verify them without sending to a customer.
 * Every send lands in `email_log` with its provider, state and provider message id. A
   workspace's `daily_quota` is enforced there, and a provider failure is written back to
   `org_email_settings.last_error` so it is visible in the app.
+* A workspace can rewrite the wording of its letters (Settings → Email → Letter wording). That
+  writes a row in `email_templates`; `resolveMail()` swaps the built-in letter for it, and no
+  row means the default goes out. The stored body is treated as **text, never markup** — it is
+  escaped and re-paragraphed inside the same shell the default letter uses, so there is no HTML
+  injection surface and no separate renderer to keep in sync.
 
 ## Booking mail
 

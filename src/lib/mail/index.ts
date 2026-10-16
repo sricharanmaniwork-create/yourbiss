@@ -7,6 +7,7 @@ import { decryptSecret } from '@/lib/crypto';
 import { optionalEnv } from '@/lib/env';
 import type { EmailSettingsRow } from '@/lib/types';
 import type { RenderedMail } from './templates';
+import { resolveMail } from './overrides';
 
 /**
  * One entry point for outgoing mail.
@@ -29,6 +30,12 @@ export interface SendInput {
   relatedType?: string;
   relatedId?: string;
   replyTo?: string;
+  /**
+   * The values a workspace's own wording of this letter can refer to, by `{{token}}` name.
+   * Pass it and the letter becomes overridable on Settings → Email; leave it out and `mail`
+   * is sent exactly as rendered.
+   */
+  tokens?: Record<string, string>;
 }
 
 export interface SendOutcome {
@@ -161,6 +168,16 @@ export async function sendMail(input: SendInput): Promise<SendOutcome> {
 
   const fromHeader = `${fromName} <${from}>`;
 
+  // A workspace that wrote its own version of this letter sends that instead. The brand line
+  // comes from the same name the From header carries, so the letter reads as one voice.
+  const mail = await resolveMail({
+    orgId: input.orgId,
+    template: input.template,
+    brand: fromName,
+    tokens: input.tokens,
+    builtIn: input.mail,
+  });
+
   try {
     let messageId: string | undefined;
 
@@ -170,9 +187,9 @@ export async function sendMail(input: SendInput): Promise<SendOutcome> {
       const result = await resend.emails.send({
         from: fromHeader,
         to: input.to,
-        subject: input.mail.subject,
-        html: input.mail.html,
-        text: input.mail.text,
+        subject: mail.subject,
+        html: mail.html,
+        text: mail.text,
         replyTo: input.replyTo ?? row?.reply_to ?? undefined,
       });
       if (result.error) throw new Error(result.error.message);
@@ -183,16 +200,16 @@ export async function sendMail(input: SendInput): Promise<SendOutcome> {
       const info = await sender.sendMail({
         from: fromHeader,
         to: input.to,
-        subject: input.mail.subject,
-        html: input.mail.html,
-        text: input.mail.text,
+        subject: mail.subject,
+        html: mail.html,
+        text: mail.text,
         replyTo: input.replyTo ?? row?.reply_to ?? undefined,
       });
       messageId = info.messageId;
       await sender.close();
     }
 
-    await log({ state: 'sent', provider: transport.kind, messageId, from, subject: input.mail.subject });
+    await log({ state: 'sent', provider: transport.kind, messageId, from, subject: mail.subject });
 
     if (row) {
       const supabase = createAdminClient();
@@ -210,7 +227,7 @@ export async function sendMail(input: SendInput): Promise<SendOutcome> {
     return { delivered: true, provider: transport.kind, messageId };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await log({ state: 'failed', provider: transport.kind, error: message.slice(0, 500), from, subject: input.mail.subject });
+    await log({ state: 'failed', provider: transport.kind, error: message.slice(0, 500), from, subject: mail.subject });
 
     if (row) {
       const supabase = createAdminClient();

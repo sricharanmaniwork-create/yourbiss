@@ -2,6 +2,7 @@ import 'server-only';
 
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { OVERRIDABLE_KEYS, type StoredTemplate } from '@/lib/mail/overrides';
 import type {
   ActivityEntry,
   Booking,
@@ -484,6 +485,23 @@ export async function getEmailSettings(orgId: string): Promise<(EmailSettingsRow
   const { data: secret } = await admin.from('org_email_passwords').select('org_id').eq('org_id', orgId).maybeSingle();
 
   return { ...row0, has_password: Boolean(secret) };
+}
+
+/**
+ * A workspace's own wording, where it has written any.
+ *
+ * The absence of a key is the answer "use ours" — migration 0006 says so in its own comment,
+ * and this is the read that makes good on it.
+ */
+export async function listEmailTemplates(orgId: string) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('email_templates')
+    .select('key, subject, html_body, text_body, enabled, updated_at')
+    .eq('org_id', orgId);
+  if (error) throw new Error(error.message);
+
+  return rows<StoredTemplate>(data).filter((template) => OVERRIDABLE_KEYS.has(template.key));
 }
 
 export async function recentEmailLog(orgId: string, limit = 20) {

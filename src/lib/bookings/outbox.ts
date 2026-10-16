@@ -102,6 +102,12 @@ interface Entry {
   org: OrgRow | null;
 }
 
+/** Our wording, and the facts a workspace's own wording may name with `{{tokens}}`. */
+interface Letter {
+  mail: RenderedMail;
+  tokens: Record<string, string>;
+}
+
 type Admin = ReturnType<typeof createAdminClient>;
 
 /**
@@ -159,8 +165,8 @@ export async function flushBookingMail(originHint?: string): Promise<FlushOutcom
         continue;
       }
 
-      const mail = render(row, entry, origin);
-      if (!mail) {
+      const letter = render(row, entry, origin);
+      if (!letter) {
         await supabase.from('booking_notifications').update({ error: `Nothing to send for kind “${row.kind}”` }).eq('id', row.id);
         outcome.skipped += 1;
         continue;
@@ -169,7 +175,8 @@ export async function flushBookingMail(originHint?: string): Promise<FlushOutcom
       const delivered = await sendMail({
         orgId: row.org_id,
         to: row.recipient,
-        mail,
+        mail: letter.mail,
+        tokens: letter.tokens,
         template: templateKey(row.kind),
         relatedType: 'booking',
         relatedId: row.booking_id,
@@ -284,8 +291,12 @@ function templateKey(kind: string): string {
  * be worse than no letter at all, so a row whose workspace row is gone renders nothing. The
  * caller records that on the row instead of throwing, because one broken booking must not
  * stop the other nineteen in the batch.
+ *
+ * `tokens` travels with it so a workspace that rewrote this letter on Settings → Email has
+ * the same facts to name. Every booking letter carries the same set: an unused token costs
+ * nothing, and a token the author can see listed but that comes back empty is a lie.
  */
-function render(row: QueueRow, entry: Entry, origin: string): RenderedMail | null {
+function render(row: QueueRow, entry: Entry, origin: string): Letter | null {
   const { booking, service, staffName, org } = entry;
   if (!org) return null;
 
@@ -294,80 +305,115 @@ function render(row: QueueRow, entry: Entry, origin: string): RenderedMail | nul
   const zone = booking.timezone.replace(/_/g, ' ');
   const manageUrl = `${origin}/book/manage?code=${encodeURIComponent(booking.code)}`;
   const serviceName = service?.name ?? 'your appointment';
-  const price = service && service.price_cents > 0 ? formatMoney(service.price_cents, service.currency) : undefined;
-  const location = service ? LOCATION_LABEL[service.location_kind] : undefined;
+  const price = service && service.price_cents > 0 ? formatMoney(service.price_cents, service.currency) : '';
+  const location = (service ? LOCATION_LABEL[service.location_kind] : '') ?? '';
+  // The team's letter opens the appointment inside the app; the customer's opens the manage page.
+  const teamUrl = `${origin}/app/bookings/appointments?q=${encodeURIComponent(booking.code)}`;
+  const rebookUrl = service ? `${origin}/book/${org.slug}/${service.slug}` : manageUrl;
+
+  const tokens: Record<string, string> = {
+    customer_name: booking.customer_name,
+    customer_email: booking.customer_email,
+    customer_phone: booking.customer_phone ?? '',
+    service_name: serviceName,
+    staff_name: staffName,
+    when,
+    timezone: zone,
+    duration: `${service?.duration_min ?? 60} minutes`,
+    price,
+    location,
+    notes: booking.notes ?? '',
+    code: booking.code,
+    org_name: org.name,
+    manage_url: manageUrl,
+    rebook_url: rebookUrl,
+  };
 
   if (row.kind === 'confirmation') {
-    return bookingConfirmation(base, {
-      customerName: booking.customer_name,
-      serviceName,
-      staffName,
-      when,
-      timeZone: zone,
-      durationMin: service?.duration_min ?? 60,
-      code: booking.code,
-      manageUrl,
-      price,
-      location,
-    });
+    return {
+      mail: bookingConfirmation(base, {
+        customerName: booking.customer_name,
+        serviceName,
+        staffName,
+        when,
+        timeZone: zone,
+        durationMin: service?.duration_min ?? 60,
+        code: booking.code,
+        manageUrl,
+        price: price === '' ? undefined : price,
+        location: location === '' ? undefined : location,
+      }),
+      tokens,
+    };
   }
 
   if (row.kind === 'reminder') {
-    return bookingReminder(base, {
-      customerName: booking.customer_name,
-      serviceName,
-      staffName,
-      when,
-      timeZone: zone,
-      code: booking.code,
-      manageUrl,
-    });
+    return {
+      mail: bookingReminder(base, {
+        customerName: booking.customer_name,
+        serviceName,
+        staffName,
+        when,
+        timeZone: zone,
+        code: booking.code,
+        manageUrl,
+      }),
+      tokens,
+    };
   }
 
   if (row.kind === 'cancelled') {
-    return bookingCancelled(base, {
-      customerName: booking.customer_name,
-      serviceName,
-      when,
-      code: booking.code,
-      rebookUrl: service ? `${origin}/book/${org.slug}/${service.slug}` : manageUrl,
-      // A customer who cancelled themselves is told "we received your cancellation"; a
-      // cancellation the team recorded is the business saying it had to call the visit off.
-      // The row's own state is what separates them, because only the customer's path can
-      // leave a booking cancelled by someone who booked it.
-      byCustomer: booking.state === 'cancelled',
-    });
+    return {
+      mail: bookingCancelled(base, {
+        customerName: booking.customer_name,
+        serviceName,
+        when,
+        code: booking.code,
+        rebookUrl,
+        // A customer who cancelled themselves is told "we received your cancellation"; a
+        // cancellation the team recorded is the business saying it had to call the visit off.
+        // The row's own state is what separates them, because only the customer's path can
+        // leave a booking cancelled by someone who booked it.
+        byCustomer: booking.state === 'cancelled',
+      }),
+      tokens,
+    };
   }
 
   if (row.kind === 'rescheduled') {
-    return bookingRescheduled(base, {
-      customerName: booking.customer_name,
-      serviceName,
-      staffName,
-      // No `oldWhen`, deliberately: `reschedule_booking` writes the new time over the old
-      // one and keeps no history row, so the queue cannot know what was replaced. A letter
-      // that guessed at the previous time would be worse than one that says nothing.
-      when,
-      timeZone: zone,
-      code: booking.code,
-      manageUrl,
-    });
+    return {
+      mail: bookingRescheduled(base, {
+        customerName: booking.customer_name,
+        serviceName,
+        staffName,
+        // No `oldWhen`, deliberately: `reschedule_booking` writes the new time over the old
+        // one and keeps no history row, so the queue cannot know what was replaced. A letter
+        // that guessed at the previous time would be worse than one that says nothing.
+        when,
+        timeZone: zone,
+        code: booking.code,
+        manageUrl,
+      }),
+      tokens,
+    };
   }
 
   if (row.kind === 'team_alert') {
-    return teamNewBooking(base, {
-      staffName,
-      serviceName,
-      customerName: booking.customer_name,
-      customerEmail: booking.customer_email,
-      customerPhone: booking.customer_phone,
-      when,
-      timeZone: zone,
-      notes: booking.notes,
-      code: booking.code,
-      // The team's letter opens the appointment inside the app, not the customer's page.
-      manageUrl: `${origin}/app/bookings/appointments?q=${encodeURIComponent(booking.code)}`,
-    });
+    return {
+      mail: teamNewBooking(base, {
+        staffName,
+        serviceName,
+        customerName: booking.customer_name,
+        customerEmail: booking.customer_email,
+        customerPhone: booking.customer_phone,
+        when,
+        timeZone: zone,
+        notes: booking.notes,
+        code: booking.code,
+        manageUrl: teamUrl,
+      }),
+      tokens: { ...tokens, manage_url: teamUrl },
+    };
   }
 
   return null;

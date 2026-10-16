@@ -19,7 +19,11 @@ interface ShellOptions {
   brand: string;
 }
 
-function shell(o: ShellOptions): string {
+/**
+ * The letter's frame. Exported for `overrides.ts`, which puts a workspace's own wording
+ * inside the same card rather than handing out a bare fragment a mail client would restyle.
+ */
+export function shell(o: ShellOptions): string {
   const meta =
     o.metaLines && o.metaLines.length > 0
       ? `<tr><td style="padding:20px 28px 0">
@@ -77,7 +81,7 @@ export interface RenderedMail {
   text: string;
 }
 
-interface Base {
+export interface Base {
   brand: string;
   footer: string;
   accent?: string;
@@ -309,23 +313,5 @@ export function inviteMail(base: Base, input: { inviterName: string; orgName: st
       footer: base.footer,
     }),
     text: `${input.inviterName} invited you to ${input.orgName} on Yourbiss as ${input.role}.\n\nAccept: ${input.acceptUrl}`,
-  };
-}
-
-export function welcomeMail(base: Base, input: { name: string; appUrl: string }): RenderedMail {
-  return {
-    subject: 'Your Yourbiss workspace is ready',
-    html: shell({
-      brand: base.brand,
-      accent: base.accent ?? '#2E6BE6',
-      preheader: 'Build a site, collect responses, take bookings',
-      heading: `Welcome, ${input.name}`,
-      bodyHtml: `<p>Your workspace is set up with a starter site and an empty canvas. Add blocks from the left, edit them on the right, and publish when it looks right.</p>
-        <p>Forms and Bookings can be switched on as separate apps and embedded into any page as live blocks.</p>`,
-      ctaLabel: 'Open the website builder',
-      ctaHref: input.appUrl,
-      footer: base.footer,
-    }),
-    text: `Welcome to Yourbiss.\n\nOpen your workspace: ${input.appUrl}`,
   };
 }

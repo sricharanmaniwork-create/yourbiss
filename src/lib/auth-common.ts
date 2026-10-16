@@ -51,6 +51,15 @@ function requestUrl(request: Request) {
 
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
+/**
+ * The rule sign-up and password reset share: eight characters, and not one character
+ * repeated or a string of digits. Sign-in deliberately does not apply it — an account
+ * created before the rule exists must still be able to open the app with its old password.
+ */
+export function weakPassword(value: string): boolean {
+  return value.length < 8 || /^(\D)\1+$/.test(value) || /^\d+$/.test(value);
+}
+
 export function readString(form: FormData, key: string, max = 200): string {
   const value = form.get(key);
   if (typeof value !== 'string') return '';

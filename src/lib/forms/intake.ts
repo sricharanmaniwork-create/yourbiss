@@ -177,6 +177,12 @@ async function notify(
         orgId: form.orgId,
         to,
         mail,
+        tokens: {
+          form_title: form.title,
+          org_name: form.orgName,
+          submitter_email: submitterEmail ?? '',
+          answers: answers.map((answer) => `${answer.label}: ${answer.value || '—'}`).join('\n'),
+        },
         template: 'form_response',
         relatedType: 'form_submission',
         relatedId: submissionId,
