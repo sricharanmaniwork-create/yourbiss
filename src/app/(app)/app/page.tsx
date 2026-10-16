@@ -8,6 +8,7 @@ import { Badge, StatusBadge } from '@/components/ui/badge';
 import { ButtonLink } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { GettingStarted } from '@/components/dashboard/getting-started';
+import { NewFormButton } from '@/components/forms/new-form-button';
 import { isLive } from '@/lib/modules';
 import { formatInZone } from '@/lib/utils';
 import { addDays, dateInZone } from '@/lib/utils';
@@ -33,7 +34,6 @@ export default async function DashboardPage() {
 
   // The rail shows every app, but a link to a screen that is not in this build
   // is worse than no link, so the actions below follow the build state.
-  const formsLive = isLive('forms');
   const bookingsLive = isLive('bookings');
 
   return (
@@ -43,13 +43,10 @@ export default async function DashboardPage() {
         description={`Today is ${new Intl.DateTimeFormat('en-IN', { dateStyle: 'full', timeZone: org.timezone }).format(new Date())} in ${org.timezone.replace('_', ' ')}.`}
         actions={
           <>
-            {formsLive && (
-              <ButtonLink href="/app/forms/new" variant="secondary" size="md">
-                <FileText size={14} />
-                New form
-              </ButtonLink>
-            )}
-            <ButtonLink href="/app/websites" variant="primary" size="md">
+            {/* The same switch the database checks on the insert, so the button is
+                never offered when the write would be refused. */}
+            {workspace.apps.forms === true && <NewFormButton orgId={org.id} orgSlug={org.slug} />}
+            <ButtonLink href="/app/websites" variant="secondary" size="md">
               <Globe size={14} />
               Build a website
             </ButtonLink>

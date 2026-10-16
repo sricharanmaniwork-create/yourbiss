@@ -170,6 +170,15 @@
   }
 }
 
+/* A no-JS form posts to the server and is redirected back to this page with the
+   outcome in the address, so the reply is a plain fragment target. */
+.yb-target-only {
+  display: none;
+}
+.yb-target-only:target {
+  display: block;
+}
+
 .prose-block p {
   margin: 0 0 12px;
 }
@@ -187,6 +196,305 @@
 }
 .prose-block strong {
   font-weight: 650;
+}
+
+/* A public form. The theme arrives as custom properties on `.yb-form`, so a field
+   is styled once here and never inline — which is also what makes the focus ring
+   and the disabled button possible. */
+.yb-form {
+  --yb-accent: #2e6be6;
+  --yb-radius: 9px;
+  --yb-surface: #ffffff;
+  --yb-width: 640px;
+  --yb-label-case: none;
+  font-size: 14.5px;
+  color: #111827;
+}
+
+.yb-form-card {
+  max-width: var(--yb-width);
+  margin: 0 auto;
+  background: var(--yb-surface);
+  border: 1px solid #e4e8ee;
+  border-radius: calc(var(--yb-radius) + 3px);
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgb(16 24 40 / 5%), 0 8px 24px -12px rgb(16 24 40 / 12%);
+}
+
+.yb-form-head {
+  padding: 22px 26px;
+  background: var(--yb-accent);
+  color: #fff;
+}
+
+.yb-form-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.yb-form-desc {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  opacity: 0.9;
+}
+
+/* Inside an iframe the frame is already on someone's page, so the title sits in
+   plain ink instead of on the accent band. */
+.yb-form > .yb-form-head {
+  padding: 18px 20px 0;
+  background: transparent;
+  color: #111827;
+}
+
+.yb-form-body {
+  padding: 22px 26px 24px;
+}
+
+.yb-form-trap {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.yb-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 18px;
+}
+
+.yb-form-grid > * {
+  grid-column: span 2;
+}
+
+.yb-form-grid > .yb-half {
+  grid-column: span 1;
+}
+
+@media (max-width: 560px) {
+  .yb-form-grid > .yb-half {
+    grid-column: span 2;
+  }
+}
+
+.yb-form-field {
+  min-width: 0;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.yb-form-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: var(--yb-label-case);
+  color: #344054;
+}
+
+.yb-form-req {
+  margin-left: 3px;
+  color: #d92d20;
+}
+
+.yb-form input:not([type='checkbox']):not([type='radio']),
+.yb-form select,
+.yb-form textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px;
+  font: inherit;
+  color: #111827;
+  background: #fff;
+  border: 1px solid #d5dae2;
+  border-radius: var(--yb-radius);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.yb-form textarea {
+  resize: vertical;
+  min-height: 84px;
+}
+
+.yb-form input::placeholder,
+.yb-form textarea::placeholder {
+  color: #98a2b3;
+}
+
+.yb-form input:focus-visible,
+.yb-form select:focus-visible,
+.yb-form textarea:focus-visible,
+.yb-form-rating:focus-visible,
+.yb-form-star:focus-visible {
+  outline: none;
+  border-color: var(--yb-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--yb-accent) 22%, transparent);
+}
+
+.yb-form input[aria-invalid='true'],
+.yb-form select[aria-invalid='true'],
+.yb-form textarea[aria-invalid='true'] {
+  border-color: #f04438;
+}
+
+.yb-form-choices {
+  display: grid;
+  gap: 8px;
+}
+
+.yb-form-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 14px;
+  color: #344054;
+  cursor: pointer;
+}
+
+.yb-form-choice input {
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+  accent-color: var(--yb-accent);
+  flex: none;
+}
+
+.yb-form-consent {
+  align-items: center;
+}
+
+.yb-form-money {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.yb-form-money > span {
+  color: #667085;
+}
+
+.yb-form-rating {
+  display: flex;
+  gap: 6px;
+  border-radius: var(--yb-radius);
+}
+
+.yb-form-star {
+  width: 34px;
+  height: 34px;
+  font: inherit;
+  font-weight: 600;
+  color: #475467;
+  background: #fff;
+  border: 1px solid #d5dae2;
+  border-radius: var(--yb-radius);
+  cursor: pointer;
+}
+
+.yb-form-star.on {
+  color: #fff;
+  background: var(--yb-accent);
+  border-color: var(--yb-accent);
+}
+
+.yb-form-help {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #667085;
+}
+
+.yb-form-error,
+.yb-form-notice {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #b42318;
+}
+
+.yb-form-notice {
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  background: #fef3f2;
+  border: 1px solid #fecdca;
+  border-radius: var(--yb-radius);
+}
+
+.yb-form-section {
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid #e4e8ee;
+}
+
+.yb-form-section h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--yb-accent);
+}
+
+.yb-form-heading {
+  margin: 4px 0 0;
+  font-size: 14.5px;
+  font-weight: 650;
+}
+
+.yb-form-note {
+  padding: 10px 12px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #475467;
+  background: #f7f8fa;
+  border-left: 3px solid var(--yb-accent);
+  border-radius: 4px;
+}
+
+.yb-form-divider {
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid #e4e8ee;
+}
+
+.yb-form-spacer {
+  height: 24px;
+}
+
+.yb-form-foot {
+  margin-top: 20px;
+}
+
+.yb-form-submit {
+  padding: 11px 22px;
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: var(--yb-accent);
+  border: 0;
+  border-radius: var(--yb-radius);
+  cursor: pointer;
+}
+
+.yb-form-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.yb-form-done {
+  padding: 30px 26px;
+  text-align: center;
+}
+
+.yb-form-done-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 650;
+  color: var(--yb-accent);
 }
 
 /* Drag-and-drop affordances in the canvas. */

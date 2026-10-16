@@ -100,6 +100,11 @@ function buttonPrimary(theme: SiteTheme): CSSProperties {
   };
 }
 
+/** The sign-up block's reply line, shown only when the URL names it. */
+function replyStyle(theme: SiteTheme): CSSProperties {
+  return { margin: '10px 0 0', fontSize: '13px', color: theme.colors?.muted ?? '#6B7280' };
+}
+
 const BUTTON_VARIANTS: Record<string, (theme: SiteTheme) => CSSProperties> = {
   primary: buttonPrimary,
   secondary: (t) => ({
@@ -995,12 +1000,17 @@ export function renderBlock(node: BlockNode, ctx: RenderContext): ReactNode {
       if (!form) {
         return <EmptyNote label={ctx.mode === 'canvas' ? 'Choose which form saves these sign-ups, on the right.' : 'Sign-ups are not open on this page yet.'} />;
       }
+      // The form posts without JavaScript, and the server sends the browser back to
+      // this page with the outcome in the address. Each block keys that address by
+      // its own id so two sign-ups on one page cannot light up each other's reply.
+      const reply = `yourbiss-${node.id}`;
       return (
         <div style={{ ...styleFor(styles, theme) }}>
           {text(p.title) && <h3 style={{ margin: '0 0 10px', fontSize: '20px', fontFamily: headingFont(theme) }}>{text(p.title)}</h3>}
           <form method="post" action="/api/newsletter" style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', maxWidth: '480px' }}>
             <input type="text" name="company" tabIndex={-1} autoComplete="off" aria-hidden="true" style={{ position: 'absolute', left: '-9999px', width: '1px', height: '1px' }} />
             <input type="hidden" name="form" value={form.id} />
+            <input type="hidden" name="ret" value={node.id} />
             <label style={{ flex: 1, minWidth: '220px' }}>
               <span className="sr-only">Email address</span>
               <input
@@ -1019,7 +1029,19 @@ export function renderBlock(node: BlockNode, ctx: RenderContext): ReactNode {
               {text(p.button_label) || 'Subscribe'}
             </button>
           </form>
-          {text(p.success) && <p style={{ margin: '10px 0 0', fontSize: '13px', opacity: 0.75 }}>{text(p.success)}</p>}
+          {ctx.mode === 'live' && (
+            <div aria-live="polite">
+              <p id={`${reply}-subscribed`} className="yb-target-only" style={replyStyle(theme)}>
+                {text(p.success) || 'Thanks — your address is on the list.'}
+              </p>
+              <p id={`${reply}-duplicate`} className="yb-target-only" style={replyStyle(theme)}>
+                That address is already on the list.
+              </p>
+              <p id={`${reply}-error`} className="yb-target-only" style={replyStyle(theme)}>
+                That address could not be recorded. Please try again.
+              </p>
+            </div>
+          )}
         </div>
       );
     }
@@ -1034,10 +1056,12 @@ export function renderBlock(node: BlockNode, ctx: RenderContext): ReactNode {
       }
       return (
         <div style={{ ...styleFor(styles, theme) }}>
+          {/* Whichever side shows the form's own title, the frame is told to leave
+              it out — the heading appears once, wherever the toggle puts it. */}
           {flag(p.show_title) && <h3 style={{ margin: '0 0 14px', fontSize: '20px', fontFamily: headingFont(theme) }}>{form.label}</h3>}
           <iframe
             title={form.label}
-            src={`/embed/form/${form.id}`}
+            src={`/embed/form/${form.id}${flag(p.show_title) ? '?title=off' : ''}`}
             loading="lazy"
             style={{ display: 'block', width: '100%', height: `${num(p.height, 620)}px`, border: `1px solid ${theme.colors?.border ?? '#E5E7EB'}`, borderRadius: theme.radius ?? '10px', background: theme.colors?.surface ?? '#FFFFFF' }}
           />

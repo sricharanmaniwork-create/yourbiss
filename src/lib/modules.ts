@@ -55,7 +55,7 @@ export const MODULES: ModuleDef[] = [
     href: '/app/forms',
     icon: FileText,
     tagline: 'Build forms with conditional logic and read responses.',
-    state: 'planned',
+    state: 'live',
     appKey: 'forms',
   },
   {

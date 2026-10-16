@@ -4,6 +4,10 @@ import { z } from 'zod';
  * Form field model. A form's `fields` array is the single document both the
  * builder UI and the public page render from, and the shape the server validates
  * a submission against.
+ *
+ * There is deliberately no file-upload field yet: an attachment needs a storage
+ * bucket, a size and type limit, and a retention rule before an answer can hold
+ * one.
  */
 export type FieldKind =
   | 'text'
@@ -19,7 +23,6 @@ export type FieldKind =
   | 'checkbox'
   | 'checkbox_single'
   | 'multiselect'
-  | 'file'
   | 'rating'
   | 'url'
   | 'name'
@@ -71,8 +74,6 @@ export interface FormFieldDef {
     max?: number;
     pattern?: string;
     message?: string;
-    allowed_types?: string[];
-    max_mb?: number;
   };
   logic?: FieldLogic;
   width?: 'full' | 'half';
@@ -87,7 +88,7 @@ export const formFieldSchema: z.ZodType<FormFieldDef> = z
     id: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/, 'Field ids may contain letters, numbers, dash and underscore'),
     type: z.enum([
       'text', 'textarea', 'email', 'phone', 'number', 'rupees', 'date', 'time', 'select', 'radio',
-      'checkbox', 'checkbox_single', 'multiselect', 'file', 'rating', 'url', 'name', 'address',
+      'checkbox', 'checkbox_single', 'multiselect', 'rating', 'url', 'name', 'address',
       'section', 'heading', 'note', 'divider', 'spacer',
     ]),
     label: z.string().max(200),
@@ -103,8 +104,6 @@ export const formFieldSchema: z.ZodType<FormFieldDef> = z
         max: z.number().min(-1000000).max(1000000).optional(),
         pattern: z.string().max(200).optional(),
         message: z.string().max(200).optional(),
-        allowed_types: z.array(z.string().max(40)).max(20).optional(),
-        max_mb: z.number().int().min(1).max(50).optional(),
       })
       .passthrough()
       .optional(),
@@ -134,7 +133,6 @@ export interface FormSettings {
   submit_label: string;
   success_message: string;
   redirect_url: string;
-  require_verified_email: boolean;
   one_per_visitor: boolean;
   close_at: string | null;
   field_order: string[];
@@ -144,7 +142,6 @@ export const FORM_SETTINGS_DEFAULT: FormSettings = {
   submit_label: 'Submit',
   success_message: 'Thank you. Your response has been recorded.',
   redirect_url: '',
-  require_verified_email: false,
   one_per_visitor: false,
   close_at: null,
   field_order: [],
@@ -160,7 +157,6 @@ export const formSettingsSchema = z
     submit_label: z.string().max(60).default('Submit'),
     success_message: z.string().max(1000).default(FORM_SETTINGS_DEFAULT.success_message),
     redirect_url: urlOrEmpty.default(''),
-    require_verified_email: z.boolean().default(false),
     one_per_visitor: z.boolean().default(false),
     close_at: z.string().max(40).nullable().default(null),
     field_order: z.array(z.string().max(64)).max(200).default([]),
@@ -221,11 +217,6 @@ export function validateFieldSemantics(fields: FormFieldDef[]): string | null {
       const options = field.options ?? [];
       if (options.length === 0) return `"${field.label}" needs at least one choice`;
       if (options.some((o) => !o.label.trim())) return `"${field.label}" has a choice with no label`;
-    }
-
-    if (field.type === 'file') {
-      const maxMb = field.validation?.max_mb ?? 5;
-      if (maxMb > 25) return `"${field.label}" cannot accept files larger than 25 MB`;
     }
 
     if (field.logic) {
@@ -310,7 +301,6 @@ export const FIELD_KIND_LABELS: Record<FieldKind, string> = {
   checkbox: 'Multiple choice',
   checkbox_single: 'Single checkbox',
   multiselect: 'Multi select',
-  file: 'File upload',
   rating: 'Rating',
   url: 'Website',
   name: 'Full name',
@@ -338,7 +328,6 @@ export function blankField(type: FieldKind, index: number): FormFieldDef {
     : type === 'checkbox' ? 'Choose all that apply'
     : type === 'multiselect' ? 'Choose all that apply'
     : type === 'checkbox_single' ? 'I agree'
-    : type === 'file' ? 'Attachment'
     : type === 'rating' ? 'How would you rate it?'
     : type === 'url' ? 'Website'
     : type === 'section' ? 'Section'
@@ -364,6 +353,5 @@ export function blankField(type: FieldKind, index: number): FormFieldDef {
         }
       : {}),
     ...(type === 'checkbox_single' ? { validation: { message: 'This must be checked to continue' } } : {}),
-    ...(type === 'file' ? { validation: { max_mb: 5, allowed_types: ['image/jpeg', 'image/png', 'application/pdf'] } } : {}),
   };
 }

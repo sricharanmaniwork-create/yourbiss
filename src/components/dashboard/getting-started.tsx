@@ -28,7 +28,7 @@ export function GettingStarted({ counts, sites }: { counts: DashboardCounts; sit
       icon: <FileText size={15} />,
       title: 'Create a form',
       body: 'Contact, quote or intake form. It can sit on your site or be shared as a link.',
-      href: counts.forms > 0 ? '/app/forms' : '/app/forms/new',
+      href: '/app/forms',
       cta: counts.forms > 0 ? 'See your forms' : 'Build a form',
     },
     {

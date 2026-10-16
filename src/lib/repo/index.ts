@@ -8,6 +8,7 @@ import type {
   BookingService,
   BookingStaff,
   EmailSettingsRow,
+  FormPrivateRow,
   FormRow,
   OrgMember,
   Site,
@@ -172,6 +173,28 @@ export async function listFormSubmissions(formId: string, limit = 200) {
     .limit(limit);
   if (error) throw new Error(error.message);
   return rows<import('@/lib/types').FormSubmissionRow>(data);
+}
+
+/**
+ * Who gets told about a response, and where it is forwarded.
+ *
+ * The webhook secret is deliberately not selected: `form_privates_select` already
+ * limits this row to admins, but the settings screen only has to say whether one
+ * is stored, so the value never needs to come back to the browser.
+ */
+export async function getFormPrivates(formId: string): Promise<(FormPrivateRow & { hasSecret: boolean }) | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('form_privates')
+    .select('*')
+    .eq('form_id', formId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const value = row<FormPrivateRow & { webhook_secret: string | null }>(data);
+  if (!value) return null;
+  // Exists-check only: the secret itself is dropped here and never reaches the client.
+  const { webhook_secret: secret, ...rest } = value;
+  return { ...rest, hasSecret: Boolean(secret) };
 }
 
 // --- bookings ---------------------------------------------------------------
