@@ -125,15 +125,24 @@ export const MODULES: ModuleDef[] = [
 
 const BY_KEY = new Map(MODULES.map((m) => [m.key, m]));
 
+/**
+ * The URL segment each module owns. Key and segment are not the same thing —
+ * `website` is served at `/app/websites` — so anything that asks "which module
+ * is this path" has to read the href, or it silently answers "dashboard".
+ */
+const BY_SEGMENT = new Map<string, ModuleDef>(
+  MODULES.map((m): [string, ModuleDef] => [m.href.split('/')[2] ?? '', m]).filter(([segment]) => segment !== ''),
+);
+
 export function moduleByKey(key: string): ModuleDef | undefined {
   return BY_KEY.get(key);
 }
 
 export function moduleByPathname(pathname: string): ModuleDef | undefined {
-  // Longest match wins so /app/bookings/services still resolves to Bookings.
+  // Only the first segment decides: /app/bookings/services is still Bookings.
   const segment = pathname.split('/').filter(Boolean)[1] ?? '';
   if (!segment) return moduleByKey('dashboard');
-  return BY_KEY.get(segment);
+  return BY_SEGMENT.get(segment);
 }
 
 /** Entries shown in the left rail, with planned apps kept visible but marked. */
