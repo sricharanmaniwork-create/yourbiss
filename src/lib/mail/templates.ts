@@ -199,7 +199,22 @@ export function bookingCancelled(
 
 export function bookingRescheduled(
   base: Base,
-  input: { customerName: string; serviceName: string; staffName: string; oldWhen: string; when: string; timeZone: string; code: string; manageUrl: string },
+  input: {
+    customerName: string;
+    serviceName: string;
+    staffName: string;
+    /**
+     * Only stated when the caller actually holds it. `reschedule_booking` writes the new
+     * time over the old one and keeps no history row, so the queue normally cannot know
+     * what was replaced — and a letter that guesses at the previous time is worse than one
+     * that says nothing about it.
+     */
+    oldWhen?: string;
+    when: string;
+    timeZone: string;
+    code: string;
+    manageUrl: string;
+  },
 ): RenderedMail {
   const subject = `Rescheduled: ${input.serviceName} now on ${input.when}`;
   return {
@@ -215,14 +230,16 @@ export function bookingRescheduled(
         { label: 'Service', value: input.serviceName },
         { label: 'With', value: input.staffName },
         { label: 'New time', value: `${input.when} (${input.timeZone})` },
-        { label: 'Previous time', value: input.oldWhen },
+        ...(input.oldWhen ? [{ label: 'Previous time', value: input.oldWhen }] : []),
         { label: 'Reference', value: input.code },
       ],
       ctaLabel: 'Manage this booking',
       ctaHref: input.manageUrl,
       footer: base.footer,
     }),
-    text: `Hi ${input.customerName},\n\n${input.serviceName} with ${input.staffName} moved from ${input.oldWhen} to ${input.when} (${input.timeZone}).\nReference: ${input.code}\n\n${input.manageUrl}`,
+    text: `Hi ${input.customerName},\n\n${input.serviceName} with ${input.staffName} has moved to ${input.when} (${input.timeZone}).${
+      input.oldWhen ? ` It replaces ${input.oldWhen}.` : ''
+    }\nReference: ${input.code}\n\n${input.manageUrl}`,
   };
 }
 

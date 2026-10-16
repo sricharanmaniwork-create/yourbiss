@@ -252,12 +252,49 @@ export async function getStaff(staffId: string): Promise<BookingStaff | null> {
   return row<BookingStaff>(data);
 }
 
+/**
+ * A team member's email and phone, for the admin screen that holds them.
+ *
+ * `bstaff_contacts_admin` is written for owners and admins, so a member's own select
+ * answers no rows rather than an error — which is exactly why this returns `null` for
+ * "nothing to show" and the page reads it only after it has decided the viewer is an
+ * admin. A booking page never calls it: the row is deliberately in its own table so the
+ * public calendar cannot reach it.
+ */
+export async function getStaffContacts(staffId: string) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('booking_staff_contacts')
+    .select('email, phone, notes')
+    .eq('staff_id', staffId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const value = (data ?? null) as { email: string | null; phone: string | null; notes: string | null } | null;
+  if (!value) return null;
+  return { email: value.email ?? '', phone: value.phone ?? '', notes: value.notes ?? '' };
+}
+
 /** Staff allowed to perform a service, in the order the booking page shows them. */
 export async function staffForService(serviceId: string): Promise<BookingStaff[]> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('staff_for_service', { p_service_id: serviceId });
   if (error) throw new Error(error.message);
   return rows<BookingStaff>(data);
+}
+
+/**
+ * Every staff-and-service pairing in the workspace. A service screen needs the inverse
+ * of `staff_for_service` — who offers this one — and `booking_staff_services` is the
+ * only place that pairing exists; reading it once beats a query per service.
+ */
+export async function staffServiceLinks(orgId: string) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('booking_staff_services')
+    .select('staff_id, service_id')
+    .eq('org_id', orgId);
+  if (error) throw new Error(error.message);
+  return rows<{ staff_id: string; service_id: string }>(data);
 }
 
 export async function listAvailability(staffId: string) {
@@ -272,15 +309,58 @@ export async function listAvailability(staffId: string) {
   return rows<{ id: string; staff_id: string; weekday: number; starts_at: string; ends_at: string }>(data);
 }
 
-export async function listBreaks(availabilityId: string) {
+/**
+ * Every weekly window in the workspace, in one read.
+ *
+ * A person with no windows has a live booking page and no times to show on it, which is
+ * the most common reason a calendar looks broken, and the roster needs to say so for all
+ * of them at once: asking per person would be one query for every member of a thirty-
+ * person team.
+ */
+export async function orgWeekWindows(orgId: string) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('booking_availability')
+    .select('id, staff_id, weekday, starts_at, ends_at')
+    .eq('org_id', orgId)
+    .order('staff_id', { ascending: true })
+    .order('weekday', { ascending: true })
+    .order('starts_at', { ascending: true });
+  if (error) throw new Error(error.message);
+  return rows<{ id: string; staff_id: string; weekday: number; starts_at: string; ends_at: string }>(data);
+}
+
+/**
+ * Every break one person keeps, in one read.
+ *
+ * `booking_breaks` carries `staff_id` as well as `availability_id`, so the hours screen
+ * groups them itself instead of asking per window — which would be one query for every
+ * window on a full seven-day, four-windows-a-day calendar.
+ */
+export async function listStaffBreaks(staffId: string) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('booking_breaks')
-    .select('*')
-    .eq('availability_id', availabilityId)
+    .select('id, availability_id, starts_at, ends_at')
+    .eq('staff_id', staffId)
     .order('starts_at', { ascending: true });
   if (error) throw new Error(error.message);
-  return rows<{ id: string; availability_id: string; starts_at: string; ends_at: string; label: string | null }>(data);
+  return rows<{ id: string; availability_id: string; starts_at: string; ends_at: string }>(data);
+}
+
+/**
+ * Workspace-wide closures — festivals and blackouts that apply to every team member.
+ * There is no `id` to select: the primary key is the (org, day) pair.
+ */
+export async function listClosedDays(orgId: string) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('booking_closed_days')
+    .select('day, reason, created_at')
+    .eq('org_id', orgId)
+    .order('day', { ascending: true });
+  if (error) throw new Error(error.message);
+  return rows<{ day: string; reason: string | null; created_at: string }>(data);
 }
 
 export async function listExceptions(staffId: string) {
@@ -294,12 +374,31 @@ export async function listExceptions(staffId: string) {
   return rows<import('@/lib/types').BookingException>(data);
 }
 
+/**
+ * Every day override in the workspace, in one read.
+ *
+ * The availability screen has to answer "why is nobody free on the 14th", and an override
+ * is the usual reason — so it needs the whole team's list at once. Reading it per person
+ * would be one query for every member and would still show the same rows.
+ */
+export async function orgExceptions(orgId: string) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('booking_exceptions')
+    .select('id, staff_id, day, kind, starts_at, ends_at, reason')
+    .eq('org_id', orgId)
+    .order('day', { ascending: true });
+  if (error) throw new Error(error.message);
+  return rows<import('@/lib/types').BookingException>(data);
+}
+
 export interface BookingWindow {
   from?: string;
   to?: string;
   states?: string[];
   staffId?: string;
   serviceId?: string;
+  search?: string;
   limit?: number;
 }
 
@@ -311,6 +410,16 @@ export async function listBookings(orgId: string, window: BookingWindow = {}): P
   if (window.states?.length) query = query.in('state', window.states);
   if (window.staffId) query = query.eq('staff_id', window.staffId);
   if (window.serviceId) query = query.eq('service_id', window.serviceId);
+  if (window.search) {
+    // `or=` is a grammar of its own: commas and parentheses would open extra conditions,
+    // so a typed term is reduced to characters that cannot do that before it is quoted.
+    const term = window.search.replace(/[^A-Za-z0-9 @._+-]/g, '');
+    if (term !== '') {
+      query = query.or(
+        `code.ilike."%${term}%",customer_email.ilike."%${term}%",customer_name.ilike."%${term}%"`,
+      );
+    }
+  }
 
   const { data, error } = await query.order('starts_at', window.from ? { ascending: true } : { ascending: false }).limit(window.limit ?? 100);
   if (error) throw new Error(error.message);

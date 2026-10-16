@@ -67,6 +67,13 @@ export function formatDateInZone(iso: string, timeZone: string) {
   return new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeZone }).format(date);
 }
 
+/** Clock only, in a zone — what a slot chip and an agenda row show. */
+export function clockInZone(iso: string, timeZone: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('en-IN', { hour: 'numeric', minute: '2-digit', timeZone }).format(date);
+}
+
 /** Date as `YYYY-MM-DD` in a specific zone, without pulling a date library in. */
 export function dateInZone(day: Date, timeZone: string): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' })

@@ -64,7 +64,7 @@ export const MODULES: ModuleDef[] = [
     href: '/app/bookings',
     icon: CalendarDays,
     tagline: 'Services, staff calendars and a page customers book from.',
-    state: 'planned',
+    state: 'live',
     appKey: 'bookings',
   },
   {
