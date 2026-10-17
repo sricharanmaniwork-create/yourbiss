@@ -26,7 +26,7 @@ export function RunNow({ orgId }: { orgId: string }) {
         toast.success(
           result.scanned === 0
             ? 'Nothing has happened since the last pass, so there was nothing to look at.'
-            : `Looked at ${result.scanned} event(s) — ${result.done} carried out, ${result.skipped} not what you asked for, ${result.failed} that could not be`,
+            : `Looked at ${result.scanned} event(s) — ${result.done} carried out, ${result.skipped} left alone, ${result.failed} that could not be`,
         );
       }
       return result;

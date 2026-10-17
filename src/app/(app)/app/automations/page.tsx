@@ -69,7 +69,7 @@ export default async function AutomationsHomePage() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Stat icon={<ListChecks size={16} />} label="Rules" value={counts.rules} detail={`${off.length} written but switched off`} href="/app/automations/rules" />
         <Stat icon={<Power size={16} />} label="Switched on" value={counts.enabled} detail={counts.enabled === 0 ? 'so nothing runs, however much happens' : 'these are read on every pass'} href="/app/automations/rules?state=on" />
-        <Stat icon={<CheckCircle2 size={16} />} label="Carried out today" value={counts.done_24h} detail={`${Math.max(skipped, 0)} looked at and not what you asked for`} href="/app/automations/runs?outcome=done" />
+        <Stat icon={<CheckCircle2 size={16} />} label="Carried out today" value={counts.done_24h} detail={`${Math.max(skipped, 0)} looked at and left alone`} href="/app/automations/runs?outcome=done" />
         <Stat
           icon={<AlertTriangle size={16} />}
           label="Could not be done"

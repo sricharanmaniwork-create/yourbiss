@@ -524,7 +524,7 @@ export async function runWorkspaceAutomations(orgId: string): Promise<Automation
 
       if (!matched) {
         // Recorded rather than dropped, so the event is never asked about twice and the
-        // hub can say "24 events looked at, 20 of them not what you asked for".
+        // hub can say "24 events looked at, 20 of them left alone".
         await write(admin, rule, entry.id, 'skipped', null);
         out.skipped += 1;
         continue;

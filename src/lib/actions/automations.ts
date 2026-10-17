@@ -416,5 +416,5 @@ export async function runAutomationsNow(
   });
 
   revalidateAutomations();
-  return { ok: true, scanned: tally.scanned, done: tally.done, failed: tally.failed };
+  return { ok: true, scanned: tally.scanned, done: tally.done, skipped: tally.skipped, failed: tally.failed };
 }

@@ -28,8 +28,9 @@ const OUTCOMES = ['done', 'skipped', 'failed'] as const;
  *
  * A row here is written whether the rule answered the event or not, which is what makes
  * this a log rather than a list of successes: `skipped` means the event arrived and the
- * conditions said no, and the count of them is the difference between a rule that is
- * discriminating and one that is not firing at all.
+ * rule left it alone — the conditions said no, or the app that owns the event is switched
+ * off — and the count of them is the difference between a rule that is discriminating and
+ * one that is not firing at all.
  *
  * Nothing on this screen can be changed. The browser holds SELECT on `automation_runs` and
  * no other right, so a run is a record of something that happened — including the failed
@@ -89,7 +90,7 @@ export default async function AutomationRunsPage({
                   : 'rounded-full border border-line-strong bg-surface px-3 py-1 text-[12px] text-muted hover:border-brand hover:text-brand'
               }
             >
-              {value === 'done' ? 'Carried out' : value === 'skipped' ? 'Not what it asked for' : 'Could not be done'}
+              {value === 'done' ? 'Carried out' : value === 'skipped' ? 'Left alone' : 'Could not be done'}
             </Link>
           );
         })}

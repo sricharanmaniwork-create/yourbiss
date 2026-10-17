@@ -135,7 +135,7 @@ export default async function AutomationRulePage({ params }: { params: Promise<P
               description={
                 runs.length === 0
                   ? 'Nothing yet.'
-                  : `${runs.filter((r) => r.outcome === 'done').length} carried out, ${runs.filter((r) => r.outcome === 'skipped').length} not what it asked for, ${runs.filter((r) => r.outcome === 'failed').length} that could not be.`
+                  : `${runs.filter((r) => r.outcome === 'done').length} carried out, ${runs.filter((r) => r.outcome === 'skipped').length} left alone, ${runs.filter((r) => r.outcome === 'failed').length} that could not be.`
               }
               action={
                 <ButtonLink href={`/app/automations/runs?rule=${rule.id}`} size="sm">

@@ -148,9 +148,10 @@ activity, or send a letter through the same `sendMail()` door the rest of the pr
 * **One event runs one rule once.** `automation_runs` is unique on `(rule_id, log_id)`; a second
   runner, a retried cron tick or a double-clicked button loses that race quietly instead of
   sending a second letter. Each rule also keeps a `max(log_id)` cursor and takes 20 events per
-  pass, so a sweep always finishes. A run records `done`, `skipped` (the conditions said no —
-  stored so the same event is never asked twice) or `failed` with the reason, and failures are
-  what the hub shows, because a rule that never fires is otherwise invisible.
+  pass, so a sweep always finishes. A run records `done`, `skipped` (the conditions said no, or
+  the app that owns the event is switched off — stored so the same event is never asked twice)
+  or `failed` with the reason, and failures are what the hub shows, because a rule that never
+  fires is otherwise invisible.
 * **Rules start switched off**, and the shape an action may have is enforced in Postgres
   (`youbiss.automation_rule_guard()`) as well as in `src/lib/actions/automations.ts`, so a rule
   that reaches the runner is a rule the runner can carry out. A letter goes to the record's own
