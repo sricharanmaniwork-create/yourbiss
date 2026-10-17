@@ -161,6 +161,11 @@ activity, or send a letter through the same `sendMail()` door the rest of the pr
   no address at all: a purchase order, a published site, a board and a card on it. A CRM activity
   needs a contact to write against, and the runner only ever finds one by matching an email, so
   a rule that promised either would have saved and then failed on every single event.
+* **An app that is switched off stops mailing.** The runner reads `org_apps` for itself,
+  because `service_role` is not stopped by RLS and would otherwise keep writing letters for an
+  app the workspace has already turned off. Its rules still see their events, but record them
+  as skipped — so switching Store back on next week does not discover this week's orders and
+  write to every one of them at once.
 
 Both doors take the same bearer token:
 

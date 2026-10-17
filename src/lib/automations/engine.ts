@@ -3,6 +3,7 @@ import 'server-only';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { sendMail } from '@/lib/mail';
 import { emailColumn } from '@/lib/automations/capabilities';
+import { appLabel } from '@/lib/modules';
 import { automationLetter, mailBase } from '@/lib/mail/templates';
 import { formatAmount, formatDateInZone } from '@/lib/utils';
 import type {
@@ -403,7 +404,7 @@ export async function runWorkspaceAutomations(orgId: string): Promise<Automation
   const admin = createAdminClient();
   const out = tally();
 
-  const [rulesResult, eventsResult, orgResult] = await Promise.all([
+  const [rulesResult, eventsResult, orgResult, appsResult] = await Promise.all([
     admin
       .from('automation_rules')
       .select('*')
@@ -412,13 +413,24 @@ export async function runWorkspaceAutomations(orgId: string): Promise<Automation
       .order('created_at', { ascending: true }),
     admin.from('automation_events').select('app, entity_type, action, fields').order('app'),
     admin.from('orgs').select('id, name, currency, locale, timezone').eq('id', orgId).maybeSingle(),
+    admin.from('org_apps').select('app_key, status').eq('org_id', orgId),
   ]);
 
   if (rulesResult.error) throw new Error(rulesResult.error.message);
   if (eventsResult.error) throw new Error(eventsResult.error.message);
+  if (appsResult.error) throw new Error(appsResult.error.message);
 
   const org = orgResult.data;
   if (!org || orgResult.error) return out;
+
+  // The same answer `youbiss.app_enabled()` gives the screens: a row that says enabled, or
+  // no row at all. This runner reads as `service_role`, so RLS never tells it that the
+  // workspace switched Store off — it has to ask, or an app that is gone keeps mailing.
+  const switchedOn = new Set<string>(
+    ((appsResult.data ?? []) as unknown as { app_key: string; status: string }[])
+      .filter((row) => row.status === 'enabled')
+      .map((row) => row.app_key),
+  );
 
   const events = (eventsResult.data ?? []) as unknown as AutomationEvent[];
   const rules = (rulesResult.data ?? []) as unknown as AutomationRule[];
@@ -432,6 +444,12 @@ export async function runWorkspaceAutomations(orgId: string): Promise<Automation
       // catalogue row cannot be edited by a browser, and the runner must not invent one.
       continue;
     }
+
+    // The app is off, but its unseen events are still recorded — as skipped. That is what
+    // keeps a week of turning Store off from becoming a week of late letters the moment it
+    // is switched back on: the cursor moves, so the rule starts from now, exactly as it
+    // does when a person switches the rule itself off and on again.
+    const paused = switchedOn.has(rule.app) ? null : `${appLabel(rule.app)} is switched off`;
 
     const kinds = new Map(event.fields.map((field) => [field.name, field.kind]));
     const kindOf = (field: string) => kinds.get(field) ?? 'text';
@@ -471,6 +489,12 @@ export async function runWorkspaceAutomations(orgId: string): Promise<Automation
       summary: string | null;
     }[]) {
       out.scanned += 1;
+
+      if (paused !== null) {
+        await write(admin, rule, entry.id, 'skipped', paused);
+        out.skipped += 1;
+        continue;
+      }
 
       // The table name only becomes known at run time, so the builder cannot type this
       // read; it is laundered here once rather than argued with at every field.
