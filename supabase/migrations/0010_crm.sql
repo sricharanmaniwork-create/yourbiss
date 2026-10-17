@@ -362,6 +362,12 @@ create trigger youbiss_crm_deal_stage
 
 -- A converted lead is the record of a conversion. Its own identity is frozen;
 -- who owns it and what is written about it can still change.
+--
+-- The two back-references are the exception, and only when the row they point at is
+-- gone: deleting a deal or a customer runs their `on delete set null`, which is an
+-- UPDATE of this table from inside the constraint system, and a guard that refused it
+-- would make an admin's cleanup fail. Nothing else may clear them — an edit that
+-- forgets what a lead became is exactly what this trigger exists to stop.
 create or replace function youbiss.crm_lead_converted_guard()
 returns trigger
 language plpgsql
@@ -373,9 +379,13 @@ begin
     or new.company is distinct from old.company
     or new.phone is distinct from old.phone
     or new.status is distinct from old.status
-    or new.converted_contact_id is distinct from old.converted_contact_id
-    or new.converted_deal_id is distinct from old.converted_deal_id
     or new.converted_at is distinct from old.converted_at
+    or (new.converted_contact_id is distinct from old.converted_contact_id
+        and not (new.converted_contact_id is null
+                 and not exists (select 1 from public.crm_contacts c where c.id = old.converted_contact_id)))
+    or (new.converted_deal_id is distinct from old.converted_deal_id
+        and not (new.converted_deal_id is null
+                 and not exists (select 1 from public.crm_deals d where d.id = old.converted_deal_id)))
   ) then
     raise exception 'a converted lead stays as it was converted' using errcode = '42809';
   end if;
@@ -772,8 +782,9 @@ create policy crm_activities_insert on public.crm_activities
   for insert to authenticated
   with check (youbiss.is_member(org_id) and youbiss.app_enabled(org_id, 'crm'));
 
--- Anyone in the workspace can add to a record's history and tick a task off; the
--- body of what somebody else wrote stays theirs to change.
+-- Anyone in the workspace can add to a record's history, move a task along, or
+-- re-point an entry; only the writer or an admin can remove one, which is the delete
+-- policy below. A timeline is the team's record, not the note-taker's property.
 create policy crm_activities_update on public.crm_activities
   for update to authenticated
   using (youbiss.is_member(org_id) and youbiss.app_enabled(org_id, 'crm'))
