@@ -82,7 +82,7 @@ export const MODULES: ModuleDef[] = [
     href: '/app/crm',
     icon: Users,
     tagline: 'Leads from your forms and bookings, followed through to a sale.',
-    state: 'planned',
+    state: 'live',
     appKey: 'crm',
   },
   {

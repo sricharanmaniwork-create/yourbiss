@@ -271,6 +271,115 @@ export interface DayAvailability {
   has_free_slot: boolean;
 }
 
+// --- crm ---------------------------------------------------------------------
+
+export type CrmLeadStatus = 'new' | 'contacted' | 'qualified' | 'converted' | 'unqualified';
+export type CrmStageKind = 'open' | 'won' | 'lost';
+export type CrmActivityKind = 'note' | 'call' | 'meeting' | 'task';
+
+/** A person this workspace has a relationship with. */
+export interface CrmPersonFields {
+  name: string;
+  company: string | null;
+  email: string | null;
+  phone: string | null;
+  owner_id: string | null;
+  source: string;
+}
+
+export interface CrmContact extends CrmPersonFields {
+  id: string;
+  org_id: string;
+  tags: string[];
+  address: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  owner?: Pick<UserProfile, 'display_name' | 'email' | 'avatar_url'> | null;
+}
+
+export interface CrmLead extends CrmPersonFields {
+  id: string;
+  org_id: string;
+  status: CrmLeadStatus;
+  reason: string | null;
+  form_submission_id: string | null;
+  booking_id: string | null;
+  /** Written only by the convert function, which is why they travel together. */
+  converted_contact_id: string | null;
+  converted_deal_id: string | null;
+  converted_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  owner?: Pick<UserProfile, 'display_name' | 'email' | 'avatar_url'> | null;
+}
+
+/**
+ * A stage row plus what sits on it. `deal_count` is counted by the read, never
+ * stored: a board with a stale total on every column is worse than one that
+ * counts the cards when it draws them.
+ */
+export interface CrmStage {
+  id: string;
+  org_id: string;
+  name: string;
+  kind: CrmStageKind;
+  position: number;
+  color: string;
+  created_at: string;
+  updated_at: string;
+  deal_count?: number;
+  deal_value?: number;
+}
+
+/**
+ * There is no `state` column on a deal, and this is why: `stage.kind` says whether
+ * it closed and `won_at`/`lost_at` say when, both written by the same trigger. A
+ * screen that wants "open deals" filters on the stage, not on a second opinion.
+ */
+export interface CrmDeal {
+  id: string;
+  org_id: string;
+  title: string;
+  stage_id: string;
+  contact_id: string | null;
+  lead_id: string | null;
+  owner_id: string | null;
+  amount: number;
+  currency: string;
+  expected_close: string | null;
+  won_at: string | null;
+  lost_at: string | null;
+  lost_reason: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  stage?: Pick<CrmStage, 'name' | 'kind' | 'color' | 'position'> | null;
+  contact?: Pick<CrmContact, 'name' | 'company'> | null;
+  lead?: Pick<CrmLead, 'name' | 'company'> | null;
+  owner?: Pick<UserProfile, 'display_name' | 'avatar_url'> | null;
+}
+
+export interface CrmActivity {
+  id: string;
+  org_id: string;
+  kind: CrmActivityKind;
+  subject: string | null;
+  body: string | null;
+  contact_id: string | null;
+  lead_id: string | null;
+  deal_id: string | null;
+  owner_id: string | null;
+  due_at: string | null;
+  done_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  owner?: Pick<UserProfile, 'display_name' | 'avatar_url'> | null;
+  author?: Pick<UserProfile, 'display_name'> | null;
+}
+
 // --- email -----------------------------------------------------------------
 
 export interface EmailSettingsRow {

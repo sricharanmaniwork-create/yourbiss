@@ -49,14 +49,28 @@ export function formatMoney(cents: number, currency = 'INR', locale = 'en-IN') {
   }
 }
 
-export function formatInZone(iso: string, timeZone: string, opts?: Intl.DateTimeFormatOptions) {
+/**
+ * Money stored as `numeric(14,2)` in whole units — a CRM deal, an inventory price.
+ * Bookings store cents, so the two helpers must not be swapped by mistake.
+ */
+export function formatAmount(units: number, currency = 'INR', locale = 'en-IN') {
+  return formatMoney(Math.round((Number.isFinite(units) ? units : 0) * 100), currency, locale);
+}
+
+/**
+ * `locale` rides along in the options but is not part of
+ * `Intl.DateTimeFormatOptions` — it belongs to the constructor's first argument,
+ * which is where a workspace's own locale has to be applied.
+ */
+export function formatInZone(iso: string, timeZone: string, opts?: Intl.DateTimeFormatOptions & { locale?: string }) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat('en-IN', {
+  const { locale = 'en-IN', ...rest } = opts ?? {};
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: 'medium',
     timeStyle: 'short',
     timeZone,
-    ...opts,
+    ...rest,
   }).format(date);
 }
 
