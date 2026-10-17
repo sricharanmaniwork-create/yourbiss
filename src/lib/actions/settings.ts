@@ -13,6 +13,7 @@ import { logActivity } from '@/lib/actions/activity';
 import { isValidSlug } from '@/lib/utils';
 import { isKnownTimeZone } from '@/lib/timezones';
 import { APP_KEYS } from '@/lib/workspace';
+import { appLabel } from '@/lib/modules';
 import type { AppKey, ActionState, OrgRole } from '@/lib/types';
 
 /**
@@ -121,7 +122,7 @@ export async function setAppEnabled(orgId: string, appKey: AppKey, enabled: bool
     entityType: 'org',
     entityId: orgId,
     action: enabled ? 'app_enabled' : 'app_disabled',
-    summary: `${appKey} ${enabled ? 'switched on' : 'switched off'}`,
+    summary: `${appLabel(appKey)} ${enabled ? 'switched on' : 'switched off'}`,
   });
 
   revalidatePath('/app', 'layout');
