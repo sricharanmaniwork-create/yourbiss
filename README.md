@@ -1,7 +1,7 @@
 # Yourbiss
 
-A multi-tenant SaaS suite — website builder, Forms and Bookings today, with Store, CRM,
-Inventory, Automations and Board still planned — modelled on how Zoho lays its apps out:
+A multi-tenant SaaS suite — website builder, Forms, Bookings, Store, CRM, Inventory and
+Automations today, with Projects still planned — modelled on how Zoho lays its apps out:
 one workspace, one left rail, one settings surface, every app writing to the same Postgres.
 
 Tenancy, scheduling rules and form-submission validity live in Postgres, not in TypeScript.
@@ -29,7 +29,7 @@ on the first request that needs it rather than a crash at build time.
 | `RESEND_API_KEY` | no | The platform-default transport for workspaces that configure nothing. |
 | `EMAIL_DEFAULT_FROM` | no | From header for that platform default, e.g. `Yourbiss <mail@yourbiss.com>`. |
 | `APP_ENCRYPTION_KEY` | for custom SMTP | 64 hex characters (32 bytes). Encrypts a workspace's SMTP password at rest. |
-| `CRON_SECRET` | for the mail cron | Bearer token that guards `GET /api/cron/bookings-mail`. |
+| `CRON_SECRET` | for the two cron doors | Bearer token guarding `GET /api/cron/bookings-mail` and `GET /api/cron/automations`. |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | no | GitHub sign-in. |
 
 Generate the encryption key with:
@@ -40,8 +40,9 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 ## Database
 
-`supabase/migrations/` applies in numeric order. **0001–0012 are all applied to the project**,
-and the next file to write is `0013_*`.
+`supabase/migrations/` applies in numeric order. **0001–0012 are all applied to the project.
+`0013_automations.sql` is written and waiting** — apply it, then switch Automations on in
+Settings → Apps before opening any of its screens.
 
 Apply new files in Supabase Studio → SQL editor, or `supabase db push` against the project.
 **When pasting into the SQL editor, wrap the file in a transaction** — `begin;` above the
@@ -120,6 +121,49 @@ Reminders are queued for appointments starting inside the next 24 hours and are 
 per booking (`bookings.reminded_at`), so an appointment is never reminded twice. A letter that
 fails is retried on the next run and given up on at twenty attempts, which is what the
 `attempts` check constraint enforces.
+
+## Automations
+
+"When something happens here, do something over there." A rule watches one event, asks up to
+six questions about the record it happened to, and carries out one to four actions: write a CRM
+activity, or send a letter through the same `sendMail()` door the rest of the product uses.
+
+* **The trigger source is `activity_log`**, created in 0002 and written by every app — mostly by
+  the SQL functions themselves (`record_form_submission`, `create_booking`, `cancel_booking`,
+  `crm_convert_lead`, `inv_post_receipt`, `store_place_order`, `store_set_status`,
+  `publish_site`), so no app had to change for Automations to exist. The hub's "Run now" and the
+  cron door both read that log; nothing fires from a request handler.
+* **`automation_events` is the vocabulary**, not a list in the app code: which
+  (app, record, action) triples the log really receives, and which fields of that record a
+  condition may name. `automation_rules` holds a **foreign key onto it**, so a rule naming an
+  event nobody writes cannot be saved, and the builder offers exactly what the table holds.
+  `GET` of `rpc/automation_triggers()` feeds the form; `automations_counts(org)` feeds the hub.
+* **A rule only acts from the moment it was switched on.** `watched_from` is moved to `now()` by
+  a trigger whenever a rule turns on or is re-pointed at another event, and the runner filters
+  the log by it. Switching "letter the buyer when an order is confirmed" on at night therefore
+  does not mail that morning's orders — which is the difference between an automation that
+  starts today and a script that discovers last month's customers.
+* **One event runs one rule once.** `automation_runs` is unique on `(rule_id, log_id)`; a second
+  runner, a retried cron tick or a double-clicked button loses that race quietly instead of
+  sending a second letter. Each rule also keeps a `max(log_id)` cursor and takes 20 events per
+  pass, so a sweep always finishes. A run records `done`, `skipped` (the conditions said no —
+  stored so the same event is never asked twice) or `failed` with the reason, and failures are
+  what the hub shows, because a rule that never fires is otherwise invisible.
+* **Rules start switched off**, and the shape an action may have is enforced in Postgres
+  (`youbiss.automation_rule_guard()`) as well as in `src/lib/actions/automations.ts`, so a rule
+  that reaches the runner is a rule the runner can carry out. A letter goes to the record's own
+  email, the workspace owner, or one fixed address written into the rule — never "every member".
+
+Both doors take the same bearer token:
+
+```
+curl -X GET https://yourbiss.vercel.app/api/cron/automations \
+  -H "Authorization: Bearer $CRON_SECRET"
+```
+
+It answers with `{ ok, workspaces, tally: { scanned, matched, done, skipped, failed } }` and
+keeps going when one workspace has a broken rule in it. Without `CRON_SECRET` it refuses with
+503.
 
 ## Commands
 

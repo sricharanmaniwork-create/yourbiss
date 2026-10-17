@@ -5,6 +5,11 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { OVERRIDABLE_KEYS, type StoredTemplate } from '@/lib/mail/overrides';
 import type {
   ActivityEntry,
+  AutomationEvent,
+  AutomationOutcome,
+  AutomationRule,
+  AutomationRun,
+  AutomationsCounts,
   Booking,
   BookingService,
   BookingStaff,
@@ -1299,4 +1304,78 @@ export async function listInvites(orgId: string) {
     .order('created_at', { ascending: false });
   if (error) throw new Error(error.message);
   return rows<import('@/lib/types').OrgInvite>(data);
+}
+
+// --- automations -------------------------------------------------------------
+
+/**
+ * What can happen, and what may be asked about when it does.
+ *
+ * This is not a list this file maintains. It is `public.automation_events`, the same
+ * table a rule's foreign key points at, so a screen cannot offer an event the schema
+ * would refuse and a rule cannot name a field the record does not have.
+ */
+export async function automationEvents(): Promise<AutomationEvent[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('automation_triggers');
+  if (error) throw new Error(error.message);
+  return rows<AutomationEvent>(data);
+}
+
+export async function automationsCounts(orgId: string): Promise<AutomationsCounts> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('automations_counts', { p_org_id: orgId });
+  if (error) throw new Error(error.message);
+  return (data ?? {}) as AutomationsCounts;
+}
+
+export async function listAutomationRules(
+  orgId: string,
+  options: { enabledOnly?: boolean } = {},
+): Promise<AutomationRule[]> {
+  const supabase = await createClient();
+  let query = supabase.from('automation_rules').select('*').eq('org_id', orgId);
+  if (options.enabledOnly) query = query.eq('enabled', true);
+
+  const { data, error } = await query.order('created_at', { ascending: true }).limit(200);
+  if (error) throw new Error(error.message);
+  return rows<AutomationRule>(data);
+}
+
+export async function getAutomationRule(ruleId: string): Promise<AutomationRule | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from('automation_rules').select('*').eq('id', ruleId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return row<AutomationRule>(data);
+}
+
+/**
+ * What the rules have already decided.
+ *
+ * Each row carries the rule that made it and the log entry that started it, both
+ * embedded rather than joined in Node: a run without its event is a number nobody can
+ * explain, and the two foreign keys are already there for PostgREST to walk.
+ */
+export async function listAutomationRuns(
+  orgId: string,
+  options: { ruleId?: string; outcome?: AutomationOutcome; limit?: number } = {},
+): Promise<AutomationRun[]> {
+  const supabase = await createClient();
+  let query = supabase
+    .from('automation_runs')
+    .select('*, rule:automation_rules!automation_runs_rule_id_fkey(id, name, enabled), event:activity_log!automation_runs_log_id_fkey(id, app_key, entity_type, entity_id, action, summary, created_at)')
+    .eq('org_id', orgId);
+  if (options.ruleId) query = query.eq('rule_id', options.ruleId);
+  if (options.outcome) query = query.eq('outcome', options.outcome);
+
+  const { data, error } = await query
+    .order('created_at', { ascending: false })
+    .limit(options.limit ?? 60);
+  if (error) throw new Error(error.message);
+
+  return rows<AutomationRun & { rule: AutomationRun['rule']; event: ActivityEntry | null }>(data).map((run) => ({
+    ...run,
+    rule: run.rule ?? null,
+    event: run.event ?? null,
+  }));
 }

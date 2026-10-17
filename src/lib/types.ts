@@ -578,6 +578,109 @@ export interface StoreCounts {
   sellable_untracked: number;
 }
 
+// --- automations -------------------------------------------------------------
+
+export type AutomationOutcome = 'done' | 'skipped' | 'failed';
+
+/**
+ * One thing that can happen, and the fields of the record it happened to. Both come
+ * from `public.automation_events`, which is also what the rules' foreign key points
+ * at — so the builder can only offer an event the suite really writes, and a rule can
+ * only be saved against a field that row really has.
+ */
+export interface AutomationField {
+  name: string;
+  label: string;
+  kind: 'text' | 'email' | 'money' | 'time' | 'date' | 'id';
+}
+
+export interface AutomationEvent {
+  app: AppKey;
+  entity_type: string;
+  action: string;
+  label: string;
+  fields: AutomationField[];
+}
+
+export type AutomationConditionOp =
+  | 'equals'
+  | 'not_equals'
+  | 'contains'
+  | 'greater'
+  | 'less'
+  | 'is_empty'
+  | 'is_not_empty';
+
+export interface AutomationCondition {
+  field: string;
+  op: AutomationConditionOp;
+  value?: string;
+}
+
+/**
+ * The two things an automation can do, and the only two 0013's guard accepts. A third
+ * would be a feature the runner silently ignores, which is worse than not offering it.
+ */
+export interface AutomationActivityAction {
+  type: 'crm_activity';
+  kind: 'note' | 'call' | 'task';
+  subject: string;
+  body?: string;
+  /** Only a task is due; the days are counted from the event. */
+  due_days?: number;
+}
+
+export interface AutomationLetterAction {
+  type: 'letter';
+  /** `record` is the email on the record, `owner` the workspace owner, `address` one fixed address. */
+  to: 'record' | 'owner' | 'address';
+  subject: string;
+  body: string;
+  address?: string;
+}
+
+export type AutomationAction = AutomationActivityAction | AutomationLetterAction;
+
+export interface AutomationRule {
+  id: string;
+  org_id: string;
+  name: string;
+  enabled: boolean;
+  app: AppKey;
+  entity_type: string;
+  action: string;
+  conditions: AutomationCondition[];
+  actions: AutomationAction[];
+  /** Events before this moment are not this rule's business. Moved by the database when the rule is switched on. */
+  watched_from: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AutomationRun {
+  id: number;
+  org_id: string;
+  rule_id: string;
+  log_id: number;
+  outcome: AutomationOutcome;
+  detail: string | null;
+  created_at: string;
+  rule?: { id: string; name: string; enabled: boolean } | null;
+  event?: ActivityEntry | null;
+}
+
+/** The seven numbers `youbiss.automations_counts` answers in one round trip. */
+export interface AutomationsCounts {
+  rules: number;
+  enabled: number;
+  runs_24h: number;
+  done_24h: number;
+  failed_24h: number;
+  last_run_at: string | null;
+  events_24h: number;
+}
+
 // --- email -----------------------------------------------------------------
 
 export interface EmailSettingsRow {

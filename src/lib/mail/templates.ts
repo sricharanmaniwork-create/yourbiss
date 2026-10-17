@@ -412,3 +412,37 @@ export function teamNewOrder(
     text: `New order ${input.number} from ${input.customerName} (${input.customerEmail}).\n\n${input.lines}\nTotal: ${input.total}\nDeliver to: ${input.address}\n\nOpen it: ${input.orderUrl}`,
   };
 }
+
+/**
+ * A letter an automation wrote.
+ *
+ * The subject and the body are the workspace's own words, with `{{tokens}}` already
+ * filled in, so this is the only template that takes text rather than fields — and the
+ * only care it needs is that somebody's sentence cannot end the HTML. Paragraph breaks
+ * become paragraphs, nothing else is interpreted.
+ */
+export function automationLetter(
+  base: Base,
+  input: { subject: string; body: string; event: string; metaLines?: { label: string; value: string }[] },
+): RenderedMail {
+  const paragraphs = input.body
+    .split(/\r?\n{2,}/)
+    .map((chunk) => chunk.trim())
+    .filter((chunk) => chunk !== '')
+    .map((chunk) => `<p style="margin:0 0 14px">${escapeHtml(chunk).replace(/\r?\n/g, '<br>')}</p>`)
+    .join('');
+
+  return {
+    subject: input.subject,
+    html: shell({
+      brand: base.brand,
+      accent: base.accent ?? '#2E6BE6',
+      preheader: input.subject,
+      heading: input.subject,
+      bodyHtml: paragraphs || '<p style="margin:0">No message was written for this letter.</p>',
+      metaLines: [{ label: 'Because', value: input.event }, ...(input.metaLines ?? [])],
+      footer: base.footer,
+    }),
+    text: `${input.subject}\n\n${input.body}\n\nBecause: ${input.event}\n\n${base.footer}`,
+  };
+}

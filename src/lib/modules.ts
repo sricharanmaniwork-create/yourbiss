@@ -100,7 +100,7 @@ export const MODULES: ModuleDef[] = [
     href: '/app/automations',
     icon: Workflow,
     tagline: 'When something happens here, do something over there.',
-    state: 'planned',
+    state: 'live',
     appKey: 'automations',
   },
   {
