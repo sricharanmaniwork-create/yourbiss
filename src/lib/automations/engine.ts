@@ -122,6 +122,27 @@ const RECORDS: Record<string, { table: string; columns: string[]; email: string 
     columns: ['id', 'org_id', 'name', 'slug', 'status'],
     email: null,
   },
+  board_project: {
+    table: 'board_projects',
+    columns: ['id', 'org_id', 'name', 'summary', 'status'],
+    email: null,
+  },
+  board_task: {
+    table: 'board_tasks',
+    columns: [
+      'id',
+      'org_id',
+      'project_id',
+      'column_id',
+      'title',
+      'details',
+      'assignee_id',
+      'due_at',
+      'position',
+      'completed_at',
+    ],
+    email: null,
+  },
 };
 
 const MONEY = new Set(['total', 'subtotal', 'shipping', 'tax_total', 'price', 'cost', 'value', 'amount']);

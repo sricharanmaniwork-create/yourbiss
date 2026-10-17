@@ -41,8 +41,9 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ## Database
 
 `supabase/migrations/` applies in numeric order. **0001–0012 are all applied to the project.
-`0013_automations.sql` is written and waiting** — apply it, then switch Automations on in
-Settings → Apps before opening any of its screens.
+`0013_automations.sql` and `0014_projects.sql` are written and waiting** — apply them in that
+order, then switch Automations and Projects on in Settings → Apps before opening either of
+their screens.
 
 Apply new files in Supabase Studio → SQL editor, or `supabase db push` against the project.
 **When pasting into the SQL editor, wrap the file in a transaction** — `begin;` above the
@@ -131,8 +132,9 @@ activity, or send a letter through the same `sendMail()` door the rest of the pr
 * **The trigger source is `activity_log`**, created in 0002 and written by every app — mostly by
   the SQL functions themselves (`record_form_submission`, `create_booking`, `cancel_booking`,
   `crm_convert_lead`, `inv_post_receipt`, `store_place_order`, `store_set_status`,
-  `publish_site`), so no app had to change for Automations to exist. The hub's "Run now" and the
-  cron door both read that log; nothing fires from a request handler.
+  `publish_site`, and 0014's `board_task_guard`), so no app had to change for Automations to
+  exist. The hub's "Run now" and the cron door both read that log; nothing fires from a request
+  handler.
 * **`automation_events` is the vocabulary**, not a list in the app code: which
   (app, record, action) triples the log really receives, and which fields of that record a
   condition may name. `automation_rules` holds a **foreign key onto it**, so a rule naming an
@@ -164,6 +166,44 @@ curl -X GET https://yourbiss.vercel.app/api/cron/automations \
 It answers with `{ ok, workspaces, tally: { scanned, matched, done, skipped, failed } }` and
 keeps going when one workspace has a broken rule in it. Without `CRON_SECRET` it refuses with
 503.
+
+## Projects
+
+Boards, lanes and cards — for the work that is not a lead, an order or a booking. No sprints,
+no dependencies, no Gantt, no time tracking: `0014_projects.sql` builds three tables and the
+rules that keep them honest, and the screens underneath `/app/board` draw exactly those.
+
+* **The lane decides when a card is finished.** `board_columns.is_done` is the only judgement a
+  lane carries, and `youbiss.board_task_guard()` stamps `completed_at` on the way into such a
+  lane and clears it on the way out. No server action writes that column, which is why a card
+  cannot be marked done while standing in a lane called "To do" — the one place the flag could
+  disagree with the board is the place it is not set.
+* **`org_id` is on every table, including the cards**, and the guard resolves it from the board
+  rather than trusting the caller. A card naming a lane from another board is refused with
+  `42809`, and a lane cannot be moved between boards at all.
+* **A lane that still holds cards cannot be deleted** (`23503`, with the count in the message),
+  and a card never disappears because a lane did — the refusal is the point.
+* **Starting a board is one call.** `youbiss.board_create_project(org, name, summary)` makes the
+  board and its three lanes (To do, In progress, Done) in one statement, so a failed request
+  cannot leave a board with nothing on it. Positions come from the guard, left to right, which
+  is why the browser never sends one.
+* **An assignee has to be a member.** `board_tasks.assignee_id` points at `auth.users`, which
+  holds every person on the platform, so `src/lib/actions/board.ts` checks `org_members` before
+  it writes — otherwise a hand-made request could park a stranger's id on a card and print an
+  empty name.
+* **A due day means the end of that day in the workspace's timezone.** `endOfDayInZone()` in
+  `src/lib/utils.ts` does it with `Intl`, twice, because a single offset is wrong across a DST
+  boundary and UTC midnight would make a card overdue by breakfast.
+* **The board writes the timeline**, so a card being added, finished or reopened is an event an
+  Automations rule can be written for. `0014` registers all four in `automation_events`, and
+  `events_24h` in `automations_counts` now reads the vocabulary table instead of a hardcoded app
+  list, so it keeps working for an app added later.
+
+`board_counts(org)` and `board_project_stats(org)` are the two SECURITY DEFINER reads the hub
+uses — one round trip each, both re-checking membership before they count, both raising `42501`
+for an outsider. My tasks is the one screen that crosses boards: it reads the cards assigned to
+the signed-in user that are not finished, and "Mark done" moves a card into the finished lane of
+its own board rather than setting a flag here.
 
 ## Commands
 

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { CalendarDays, FileText, Globe, Package, ShoppingCart, Users, Workflow } from 'lucide-react';
+import { CalendarDays, ClipboardList, FileText, Globe, Package, ShoppingCart, Users, Workflow } from 'lucide-react';
 import { YourbissMark } from '@/components/brand/mark';
 import { BLOCK_DEFS } from '@/lib/blocks/registry';
 import { getSession } from '@/lib/workspace';
@@ -23,6 +23,7 @@ const APPS = [
   { name: 'CRM', icon: Users, body: 'Every form response and booking becomes a contact with a real activity timeline.', live: true },
   { name: 'Inventory', icon: Package, body: 'Stock kept as a ledger nobody can rewrite, pricing, and the suppliers you buy from.', live: true },
   { name: 'Automations', icon: Workflow, body: 'When something happens in one app, do something in another. Rules, not guesses.', live: true },
+  { name: 'Projects', icon: ClipboardList, body: 'Lanes and cards for the work that is not a lead, an order or a booking. A rule can watch a card being finished.', live: true },
 ];
 
 export default async function LandingPage() {
@@ -57,7 +58,7 @@ export default async function LandingPage() {
           <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr]">
             <div>
               <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-[#c7dbfb] bg-brand-soft px-3 py-1 text-[12px] font-medium text-brand-dark">
-                Seven apps, one workspace — all live today
+                Eight apps, one workspace — all live today
               </p>
               <h1 className="text-[38px] font-semibold leading-[1.14] tracking-[-0.025em] text-ink sm:text-[46px]">
                 Run the whole business from one canvas.

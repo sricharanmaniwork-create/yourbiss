@@ -95,6 +95,42 @@ export function dateInZone(day: Date, timeZone: string): string {
     .slice(0, 10);
 }
 
+/**
+ * The last minute of a calendar day, in a zone, as an instant.
+ *
+ * A day picker cannot be stored as that day at UTC midnight: for a workspace in
+ * Asia/Kolkata that instant is 05:30 on the day itself, so a card due today is already
+ * late before anybody has had breakfast. This is what makes "due 17 Oct" mean the end
+ * of 17 October where the workspace keeps its clock.
+ */
+export function endOfDayInZone(day: string, timeZone: string): string {
+  const [year, month, date] = day.split('-').map(Number);
+  if (!year || !month || !date) return new Date(`${day}T23:59:00Z`).toISOString();
+
+  // Guess the instant as that evening in UTC, then pull it back by the zone's own offset
+  // at that moment. One correction is exact for every zone without a daylight-saving
+  // switch inside the day, and the second pass keeps the rest honest.
+  const local = (instant: number) => {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      hour12: false,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).formatToParts(new Date(instant));
+    const at = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? '0');
+    const hour = at('hour') === 24 ? 0 : at('hour');
+    return Date.UTC(at('year'), at('month') - 1, at('day'), hour, at('minute'));
+  };
+
+  const evening = Date.UTC(year, month - 1, date, 23, 59);
+  const once = evening - (local(evening) - evening);
+  const twice = evening - (local(once) - once);
+  return new Date(twice).toISOString();
+}
+
 export function addDays(day: string, count: number): string {
   const d = new Date(`${day}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + count);

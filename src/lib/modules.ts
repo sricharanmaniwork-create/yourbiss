@@ -108,8 +108,8 @@ export const MODULES: ModuleDef[] = [
     label: 'Projects',
     href: '/app/board',
     icon: ChartColumn,
-    tagline: 'Boards and tasks that share records with the other apps.',
-    state: 'planned',
+    tagline: 'Lanes and cards for the work in between, which Automations can watch.',
+    state: 'live',
     appKey: 'board',
   },
   {

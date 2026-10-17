@@ -10,6 +10,12 @@ import type {
   AutomationRule,
   AutomationRun,
   AutomationsCounts,
+  BoardColumn,
+  BoardCounts,
+  BoardProject,
+  BoardProjectStatus,
+  BoardRollup,
+  BoardTask,
   Booking,
   BookingService,
   BookingStaff,
@@ -1378,4 +1384,126 @@ export async function listAutomationRuns(
     rule: run.rule ?? null,
     event: run.event ?? null,
   }));
+}
+
+// --- projects ---------------------------------------------------------------
+
+/**
+ * The hub's numbers, and the one line per board underneath it.
+ *
+ * Both are single reads on purpose. Counting cards per board in Node would mean one
+ * query per board, and a workspace with twelve boards would open twelve round trips to
+ * draw a list of twelve numbers that `board_project_stats` already has.
+ */
+export async function boardCounts(orgId: string): Promise<BoardCounts> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('board_counts', { p_org_id: orgId });
+  if (error) throw new Error(error.message);
+  return (data ?? {}) as BoardCounts;
+}
+
+export async function boardRollup(orgId: string): Promise<BoardRollup[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('board_project_stats', { p_org_id: orgId });
+  if (error) throw new Error(error.message);
+  const wrapper = data as { boards?: unknown } | null;
+  return rows<BoardRollup>(Array.isArray(wrapper?.boards) ? wrapper.boards : []);
+}
+
+export async function listBoardProjects(
+  orgId: string,
+  options: { status?: BoardProjectStatus } = {},
+): Promise<BoardProject[]> {
+  const supabase = await createClient();
+  let query = supabase.from('board_projects').select('*').eq('org_id', orgId);
+  if (options.status) query = query.eq('status', options.status);
+
+  const { data, error } = await query.order('created_at', { ascending: false }).limit(200);
+  if (error) throw new Error(error.message);
+  return rows<BoardProject>(data);
+}
+
+export async function getBoardProject(projectId: string): Promise<BoardProject | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from('board_projects').select('*').eq('id', projectId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return row<BoardProject>(data);
+}
+
+/** The lanes of one board, left to right. */
+export async function listBoardColumns(projectId: string): Promise<BoardColumn[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('board_columns')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('position', { ascending: true })
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(error.message);
+  return rows<BoardColumn>(data);
+}
+
+/**
+ * Every lane across the workspace that means "finished".
+ *
+ * My tasks crosses boards, so a card there has to be moved into the done lane of its own
+ * board — and which lane that is lives on the lane, not in the screen. A board with two
+ * done lanes reads left to right, the same order the canvas shows them in.
+ */
+export async function listDoneLanes(orgId: string): Promise<BoardColumn[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('board_columns')
+    .select('*')
+    .eq('org_id', orgId)
+    .eq('is_done', true)
+    .order('position', { ascending: true })
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(error.message);
+  return rows<BoardColumn>(data);
+}
+
+/** Every card on one board, in the order the lanes show them. */
+export async function listBoardCards(projectId: string): Promise<BoardTask[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('board_tasks')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('position', { ascending: true })
+    .order('created_at', { ascending: true })
+    .limit(500);
+  if (error) throw new Error(error.message);
+  return rows<BoardTask>(data);
+}
+
+export async function getBoardTask(taskId: string): Promise<BoardTask | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from('board_tasks').select('*').eq('id', taskId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return row<BoardTask>(data);
+}
+
+/**
+ * One person's open work, across every board.
+ *
+ * The board and the lane travel with the card because the list is not sorted by either:
+ * a card called "Print the banners" is only actionable once you know which board it is
+ * on and what state it is in.
+ */
+export async function listMyBoardCards(orgId: string, userId: string): Promise<BoardTask[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('board_tasks')
+    .select('*, project:board_projects!board_tasks_project_id_fkey(id, name), lane:board_columns!board_tasks_column_id_fkey(id, name, is_done)')
+    .eq('org_id', orgId)
+    .eq('assignee_id', userId)
+    .is('completed_at', null)
+    .order('due_at', { ascending: true })
+    .limit(200);
+  if (error) throw new Error(error.message);
+
+  return rows<BoardTask & { project: { id: string; name: string } | null; lane: { id: string; name: string; is_done: boolean } | null }>(
+    data,
+  ).map((card) => ({ ...card, project: card.project ?? null, lane: card.lane ?? null }));
 }

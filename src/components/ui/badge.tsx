@@ -59,6 +59,7 @@ const STATE_TONE: Record<string, BadgeTone> = {
   partially_received: 'warning',
   received: 'success',
   placed: 'warning',
+  paused: 'warning',
   fulfilled: 'success',
   qualified: 'brand',
   converted: 'success',

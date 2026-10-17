@@ -681,6 +681,82 @@ export interface AutomationsCounts {
   events_24h: number;
 }
 
+// --- projects ---------------------------------------------------------------
+
+export type BoardProjectStatus = 'active' | 'paused' | 'completed';
+
+export interface BoardProject {
+  id: string;
+  org_id: string;
+  name: string;
+  summary: string | null;
+  status: BoardProjectStatus;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * One lane of a board.
+ *
+ * `is_done` is the only judgement a lane carries, and it is not a flag the screen
+ * remembers to set: 0014's guard stamps `completed_at` on the way into a done lane and
+ * clears it on the way out, so a card cannot be finished in a lane that is not the one
+ * that means finished.
+ */
+export interface BoardColumn {
+  id: string;
+  org_id: string;
+  project_id: string;
+  name: string;
+  position: number;
+  is_done: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BoardTask {
+  id: string;
+  org_id: string;
+  project_id: string;
+  column_id: string;
+  title: string;
+  details: string | null;
+  assignee_id: string | null;
+  due_at: string | null;
+  position: number;
+  completed_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Filled by the reads that need them: the board a card is on, and the lane it stands in. */
+  project?: { id: string; name: string } | null;
+  lane?: { id: string; name: string; is_done: boolean } | null;
+}
+
+/** The hub's header numbers, all from `youbiss.board_counts`. */
+export interface BoardCounts {
+  boards: number;
+  active_boards: number;
+  cards: number;
+  open: number;
+  overdue: number;
+  mine_open: number;
+  done_7d: number;
+}
+
+/** One line of `youbiss.board_project_stats`: a board and the state of its cards. */
+export interface BoardRollup {
+  id: string;
+  name: string;
+  status: BoardProjectStatus;
+  summary: string | null;
+  cards: number;
+  open: number;
+  done: number;
+  overdue: number;
+}
+
 // --- email -----------------------------------------------------------------
 
 export interface EmailSettingsRow {
