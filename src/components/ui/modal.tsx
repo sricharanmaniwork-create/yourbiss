@@ -30,6 +30,13 @@ export function Modal({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<Element | null>(null);
+  // The caller passes an inline arrow, so its identity changes on every render. Keeping the
+  // latest one in a ref is what lets the effect below depend on `open` alone — see the note
+  // there, because re-running it on a keystroke steals focus out of the field being typed in.
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  }, [onClose]);
 
   // Escape closes, focus is trapped inside, and the trigger is restored on
   // close — otherwise keyboard users get dropped at the top of <body>.
@@ -39,7 +46,7 @@ export function Modal({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.stopPropagation();
-        onClose();
+        closeRef.current();
         return;
       }
       if (event.key !== 'Tab') return;
@@ -60,15 +67,18 @@ export function Modal({
       }
     };
     document.addEventListener('keydown', onKeyDown);
-    const first = panelRef.current?.querySelector<HTMLElement>(
-      'input,textarea,select,button:not([data-autofocus])',
+    // A field first, in the order the reader meets them. The close button sits before every
+    // field in the markup, so "the first focusable thing" is the wrong rule for a dialog whose
+    // whole point is to be filled in.
+    const opening = panelRef.current?.querySelector<HTMLElement>(
+      'input:not([disabled]),textarea:not([disabled]),select:not([disabled])',
     );
-    (first ?? panelRef.current)?.focus();
+    (opening ?? panelRef.current)?.focus();
     return () => {
       document.removeEventListener('keydown', onKeyDown);
       if (restoreRef.current instanceof HTMLElement) restoreRef.current.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   const previousOverflow = useRef<string | null>(null);
   useEffect(() => {
