@@ -672,6 +672,22 @@ export const BLOCK_DEFS: BlockDefinition[] = [
     },
     styleKeys: ['padding', 'gap'],
   },
+  {
+    type: 'store_cart',
+    label: 'Cart and checkout',
+    group: 'Live data',
+    icon: 'ShoppingCart',
+    description: 'Sells the items Inventory has put on the storefront, and takes the order.',
+    allowedIn: EVERYWHERE,
+    controls: [
+      { kind: 'text', key: 'title', label: 'Section title', max: 200 },
+      { kind: 'select', key: 'columns', label: 'Columns', options: [
+        { value: '1', label: '1' }, { value: '2', label: '2' }, { value: '3', label: '3' },
+      ] },
+      { kind: 'text', key: 'cta', label: 'Add button label', max: 40 },
+    ],
+    styleKeys: ['padding', 'gap'],
+  },
 ];
 
 export const REGISTRY: Record<BlockType, BlockDefinition> = BLOCK_DEFS.reduce(

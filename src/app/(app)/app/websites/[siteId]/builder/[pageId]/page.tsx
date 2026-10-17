@@ -93,7 +93,7 @@ export default async function PageBuilderRoute({ params }: { params: Promise<Par
     theme: normalizeTheme(site.theme),
     basePath,
     options,
-    embeds: { forms: embeds.forms, services: embeds.services, staff: embeds.staff, products: embeds.products },
+    embeds: { forms: embeds.forms, services: embeds.services, staff: embeds.staff, products: embeds.products, storefront: embeds.storefront },
     liveHref:
       page.status === 'published' && page.published_tree
         ? `${basePath}${page.path === '/' ? '' : page.path}`

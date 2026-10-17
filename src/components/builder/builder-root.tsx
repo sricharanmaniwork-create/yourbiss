@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Layers, MousePointerClick, Shapes } from 'lucide-react';
 import type { BlockNode, BlockType, PageTree } from '@/lib/blocks/types';
-import type { EmbedEntity, RenderContext, RenderProduct } from '@/lib/blocks/render';
+import type { EmbedEntity, RenderContext, RenderProduct, StorefrontItems } from '@/lib/blocks/render';
 import type { SitePage, SiteTheme } from '@/lib/types';
 import { canContain, findBlock, indexOfChild, isContainer, parentOf } from '@/lib/blocks/tree';
 import { createPage, savePageDraft, updatePage } from '@/lib/actions/sites';
@@ -45,6 +45,7 @@ export interface BuilderInitial {
     services: Record<string, EmbedEntity>;
     staff: Record<string, EmbedEntity>;
     products: RenderProduct[];
+    storefront: StorefrontItems;
   };
   liveHref: string | null;
 }

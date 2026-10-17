@@ -315,3 +315,100 @@ export function inviteMail(base: Base, input: { inviterName: string; orgName: st
     text: `${input.inviterName} invited you to ${input.orgName} on Yourbiss as ${input.role}.\n\nAccept: ${input.acceptUrl}`,
   };
 }
+
+/**
+ * The buyer's copy of their own order.
+ *
+ * The lines are exactly what `store_place_order` wrote, which is the point: this letter
+ * is the receipt, and a receipt that re-priced the basket from today's prices would
+ * contradict the document it is describing. Nothing here is a promise about payment —
+ * no gateway takes money on this site, so the letter says how the shop will be in touch
+ * instead of showing a button that would lead nowhere.
+ */
+export function storeOrderConfirmation(
+  base: Base,
+  input: {
+    customerName: string;
+    number: string;
+    placedAt: string;
+    lines: { label: string; amount: string }[];
+    subtotal: string;
+    shipping: string;
+    taxTotal: string;
+    total: string;
+    address: string;
+    note?: string;
+    instructions?: string;
+  },
+): RenderedMail {
+  const subject = `Your order ${input.number}`;
+  const metaLines = [
+    { label: 'Reference', value: input.number },
+    { label: 'Placed', value: input.placedAt },
+    ...input.lines.map((line) => ({ label: line.label, value: line.amount })),
+    { label: 'Items', value: input.subtotal },
+    { label: 'Delivery', value: input.shipping },
+    { label: 'Tax', value: input.taxTotal },
+    { label: 'Total', value: input.total },
+    { label: 'Deliver to', value: input.address },
+  ];
+
+  return {
+    subject,
+    html: shell({
+      brand: base.brand,
+      accent: base.accent ?? '#2E6BE6',
+      preheader: `Order ${input.number} — ${input.total}`,
+      heading: `Thank you, ${input.customerName}`,
+      bodyHtml: `<p>We have your order. The shop will confirm it and be in touch about delivery.</p>
+        ${input.note ? `<p>You told them: <em>${escapeHtml(input.note)}</em></p>` : ''}
+        ${input.instructions ? `<p>${escapeHtml(input.instructions)}</p>` : ''}`,
+      metaLines,
+      footer: base.footer,
+    }),
+    text: `Thank you, ${input.customerName}.\n\nWe have your order and the shop will confirm it.\n\n` +
+      `Reference: ${input.number}\nPlaced: ${input.placedAt}\n\n` +
+      input.lines.map((line) => `${line.label.padEnd(28)} ${line.amount}`).join('\n') +
+      `\n\nItems:    ${input.subtotal}\nDelivery: ${input.shipping}\nTax:      ${input.taxTotal}\nTotal:    ${input.total}\n\nDeliver to: ${input.address}` +
+      (input.note ? `\nYour note: ${input.note}` : '') +
+      (input.instructions ? `\n\n${input.instructions}` : ''),
+  };
+}
+
+/** The workspace's own copy, so a new order reaches somebody while it is still `placed`. */
+export function teamNewOrder(
+  base: Base,
+  input: {
+    orgName: string;
+    number: string;
+    customerName: string;
+    customerEmail: string;
+    total: string;
+    lines: string;
+    address: string;
+    orderUrl: string;
+  },
+): RenderedMail {
+  const subject = `New order ${input.number} — ${input.total}`;
+  return {
+    subject,
+    html: shell({
+      brand: base.brand,
+      accent: base.accent ?? '#2E6BE6',
+      preheader: `${input.customerName} ordered ${input.number}`,
+      heading: 'A new order arrived',
+      bodyHtml: '<p>Confirm it to take the goods off the shelf, or cancel it if something is unavailable.</p>',
+      metaLines: [
+        { label: 'Reference', value: input.number },
+        { label: 'Buyer', value: `${input.customerName} (${input.customerEmail})` },
+        { label: 'Lines', value: input.lines },
+        { label: 'Total', value: input.total },
+        { label: 'Deliver to', value: input.address },
+      ],
+      ctaLabel: 'Open the order',
+      ctaHref: input.orderUrl,
+      footer: `${input.orgName} · sent by Yourbiss`,
+    }),
+    text: `New order ${input.number} from ${input.customerName} (${input.customerEmail}).\n\n${input.lines}\nTotal: ${input.total}\nDeliver to: ${input.address}\n\nOpen it: ${input.orderUrl}`,
+  };
+}

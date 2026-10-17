@@ -16,7 +16,7 @@ export default async function NewItemPage() {
         title="New item"
         description="A product has a quantity that the ledger keeps; a service is sold without one. Both can be put on a purchase order, and Store will offer both for sale."
       />
-      <ItemForm orgId={workspace.org.id} />
+      <ItemForm orgId={workspace.org.id} storeEnabled={workspace.apps.store === true} />
     </>
   );
 }

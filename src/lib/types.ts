@@ -401,6 +401,10 @@ export interface InvItem {
   cost: number;
   track_stock: boolean;
   reorder_point: number | null;
+  /** The percentage a storefront line is billed at. 0012, because Store taxes per line. */
+  tax_rate_pct: number;
+  /** Whether Store puts this item in front of a visitor. Opt-in, and off by default. */
+  sell_online: boolean;
   image_url: string | null;
   created_by: string | null;
   created_at: string;
@@ -497,6 +501,81 @@ export interface InvCounts {
   awaiting_goods: number;
   receipts_30d: number;
   movements_30d: number;
+}
+
+// --- store -------------------------------------------------------------------
+
+export type StoreOrderStatus = 'placed' | 'confirmed' | 'fulfilled' | 'cancelled';
+
+export interface StoreOrder {
+  id: string;
+  org_id: string;
+  number: string;
+  status: StoreOrderStatus;
+  buyer_name: string;
+  buyer_email: string;
+  buyer_phone: string | null;
+  ship_address: string;
+  /** What the visitor typed with the order. Frozen with the document. */
+  notes: string | null;
+  contact_id: string | null;
+  subtotal: number;
+  shipping: number;
+  tax_total: number;
+  total: number;
+  paid_at: string | null;
+  paid_via: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  contact?: Pick<CrmContact, 'id' | 'name' | 'email'> | null;
+  line_count?: number;
+  units?: number;
+}
+
+/**
+ * One line of an order. Every number on it is copied from the item as the checkout
+ * saw it, so a price changed afterwards cannot rewrite what was already sold.
+ */
+export interface StoreOrderLine {
+  id: string;
+  order_id: string;
+  org_id: string;
+  item_id: string;
+  description: string;
+  qty: number;
+  unit_price: number;
+  tax_rate_pct: number;
+  tax_amount: number;
+  total: number;
+  created_at: string;
+  updated_at: string;
+  item?: Pick<InvItem, 'name' | 'unit' | 'sku' | 'track_stock' | 'sell_online'> | null;
+}
+
+export interface StoreSettings {
+  org_id: string;
+  shipping_flat: number;
+  checkout_note: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** The twelve numbers `youbiss.store_counts` answers in one round trip. */
+export interface StoreCounts {
+  orders: number;
+  open: number;
+  awaiting: number;
+  shipped: number;
+  cancelled: number;
+  unpaid: number;
+  unpaid_value: number;
+  revenue_30d: number;
+  orders_30d: number;
+  collected_30d: number;
+  for_sale: number;
+  sellable_untracked: number;
 }
 
 // --- email -----------------------------------------------------------------

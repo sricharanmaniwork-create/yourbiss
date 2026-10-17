@@ -24,7 +24,7 @@ const KINDS = ['product', 'service'] as const;
 export default async function ItemsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; kind?: string; status?: string; low?: string; out?: string }>;
+  searchParams: Promise<{ q?: string; kind?: string; status?: string; low?: string; out?: string; sale?: string }>;
 }) {
   const workspace = await requireWorkspace();
   const orgId = workspace.org.id;
@@ -43,11 +43,12 @@ export default async function ItemsPage({
       status,
       lowOnly: query.low === '1',
       outOnly: query.out === '1',
+      onSaleOnly: query.sale === '1',
     }),
     invCounts(orgId),
   ]);
 
-  const filtering = !!(query.q || kind || query.low === '1' || query.out === '1' || query.status);
+  const filtering = !!(query.q || kind || query.low === '1' || query.out === '1' || query.sale === '1' || query.status);
   const totalOnShelf = items
     .filter((item) => item.track_stock)
     .reduce((sum, item) => sum + item.stock.on_hand, 0);
@@ -116,6 +117,7 @@ export default async function ItemsPage({
             <div className="flex flex-wrap gap-2">
               <Check name="low" on={query.low === '1'} label="Needs ordering" />
               <Check name="out" on={query.out === '1'} label="Nothing left" />
+              <Check name="sale" on={query.sale === '1'} label="On the storefront" />
             </div>
 
             <div className="flex gap-2">
@@ -166,9 +168,12 @@ export default async function ItemsPage({
                 {items.map((item) => (
                   <TR key={item.id}>
                     <TD className="font-medium">
-                      <Link href={`/app/inventory/items/${item.id}`} className="text-ink hover:text-brand">
-                        {item.name}
-                      </Link>
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <Link href={`/app/inventory/items/${item.id}`} className="text-ink hover:text-brand">
+                          {item.name}
+                        </Link>
+                        {item.sell_online && <Badge tone="brand">for sale</Badge>}
+                      </span>
                       <span className="block text-[11.5px] font-normal text-muted">{item.sku ?? 'no code'}</span>
                     </TD>
                     <TD>

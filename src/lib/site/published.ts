@@ -3,7 +3,7 @@ import 'server-only';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { pageTreeSchema, type PageTree } from '@/lib/blocks/types';
 import { normalizeTheme } from '@/lib/blocks/style';
-import type { EmbedEntity, RenderProduct } from '@/lib/blocks/render';
+import type { EmbedEntity, RenderProduct, StoreCartItem, StorefrontItems } from '@/lib/blocks/render';
 import type { SiteTheme } from '@/lib/types';
 import { formatAmount } from '@/lib/utils';
 
@@ -48,6 +48,8 @@ export interface EmbedEntities {
   services: Record<string, EmbedEntity>;
   staff: Record<string, EmbedEntity>;
   products: RenderProduct[];
+  /** What a `store_cart` block sells, and what it charges on top. Empty when the shop is closed. */
+  storefront: StorefrontItems;
 }
 
 export async function findPublishedSite(orgSlug: string, siteSlug: string): Promise<PublicSite | null> {
@@ -143,23 +145,28 @@ export async function publishedPaths(siteId: string): Promise<string[]> {
 }
 
 /**
- * Rows a `form_embed`, `booking_embed` or `product_grid` block points at. The frame
- * is only rendered when the id resolves here, so a deleted form cannot leave a broken
- * iframe on a live page.
+ * Rows a `form_embed`, `booking_embed`, `product_grid` or `store_cart` block points at.
+ * The frame is only rendered when the id resolves here, so a deleted form cannot leave a
+ * broken iframe on a live page.
  *
  * Products are the one list that can legitimately come back empty for a reason the
  * visitor should not see: Inventory may be switched off for this workspace, or its
  * tables may not exist yet on a deploy that has not been migrated. Neither is allowed
  * to take a customer's website down, so a failed product read is an empty shelf.
+ *
+ * The app switches come from `org_apps`, not from a column on `orgs` — there never was
+ * one — and a read that fails leaves them off rather than throwing, because a page of
+ * prose and pictures has no business 500ing over a shop flag.
  */
 export async function embedEntities(orgId: string): Promise<EmbedEntities> {
   const supabase = createAdminClient();
 
-  const [forms, services, staff, org, products] = await Promise.all([
+  const [forms, services, staff, org, switches, items] = await Promise.all([
     supabase.from('forms').select('id, title, slug').eq('org_id', orgId).eq('status', 'published'),
     supabase.from('booking_services').select('id, name, slug').eq('org_id', orgId).eq('status', 'active'),
     supabase.from('booking_staff').select('id, name, slug').eq('org_id', orgId).eq('status', 'active'),
-    supabase.from('orgs').select('apps, currency, locale').eq('id', orgId).maybeSingle(),
+    supabase.from('orgs').select('currency, locale').eq('id', orgId).maybeSingle(),
+    supabase.from('org_apps').select('app_key, status').eq('org_id', orgId),
     supabase
       .from('inv_items')
       .select('id, name, description, price, image_url')
@@ -167,7 +174,7 @@ export async function embedEntities(orgId: string): Promise<EmbedEntities> {
       .eq('kind', 'product')
       .eq('status', 'active')
       .order('lower(name)')
-      .limit(24),
+      .limit(120),
   ]);
 
   const toMap = (data: unknown, labelKey: 'title' | 'name'): Record<string, EmbedEntity> => {
@@ -182,27 +189,119 @@ export async function embedEntities(orgId: string): Promise<EmbedEntities> {
   if (forms.error) throw new Error(forms.error.message);
   if (services.error) throw new Error(services.error.message);
   if (staff.error) throw new Error(staff.error.message);
-  if (org.error) throw new Error(org.error.message);
 
-  const workspace = org.data as unknown as { apps: unknown; currency: string | null; locale: string | null } | null;
-  const apps = (workspace?.apps ?? {}) as Record<string, unknown>;
+  const workspace = (org.error ? null : org.data) as unknown as { currency: string | null; locale: string | null } | null;
+  const currency = workspace?.currency ?? 'INR';
+  const locale = workspace?.locale ?? 'en-IN';
 
-  const shown: RenderProduct[] =
-    apps.inventory === true && !products.error
-      ? ((products.data ?? []) as unknown as InvProductRow[]).map((item) => ({
-          id: item.id,
-          name: item.name,
-          price: formatAmount(Number(item.price), workspace?.currency ?? 'INR', workspace?.locale ?? 'en-IN'),
-          body: item.description ?? '',
-          image: item.image_url ?? '',
-        }))
-      : [];
+  const enabled = new Set(
+    switches.error
+      ? []
+      : ((switches.data ?? []) as unknown as { app_key: string; status: string }[])
+          .filter((row) => row.status === 'enabled')
+          .map((row) => row.app_key),
+  );
+
+  const rows: InvProductRow[] = items.error ? [] : ((items.data ?? []) as unknown as InvProductRow[]);
+  const label = (price: number) => formatAmount(Number(price), currency, locale);
+
+  // A catalogue list and a shop window are different questions: the grid shows what this
+  // workspace sells at all (and only while Inventory is switched on), the cart only what
+  // it put on the shelf for the storefront. The two reads are separate because the grid's
+  // is capped to a pageful of names, while a cart that quietly loses the items past its
+  // cap would be a shop refusing to sell things it has for sale. Both format through the
+  // same `label`, so a price cannot be written two ways on one page.
+  const products: RenderProduct[] = enabled.has('inventory')
+    ? rows.slice(0, 24).map((item) => ({
+        id: item.id,
+        name: item.name,
+        price: label(Number(item.price)),
+        body: item.description ?? '',
+        image: item.image_url ?? '',
+      }))
+    : [];
+
+  const storefront = await storefrontOf(orgId, {
+    open: enabled.has('store') && enabled.has('inventory'),
+    currency,
+    locale,
+    label,
+  });
 
   return {
     forms: toMap(forms.data, 'title'),
     services: toMap(services.data, 'name'),
     staff: toMap(staff.data, 'name'),
-    products: shown,
+    products,
+    storefront,
+  };
+}
+
+/**
+ * The shop's own two numbers and the items it sells, read best-effort for the reason
+ * above: a storefront whose delivery fee cannot be read is a page that still shows its
+ * items, not a broken site.
+ */
+async function storefrontOf(
+  orgId: string,
+  input: {
+    open: boolean;
+    currency: string;
+    locale: string;
+    label: (price: number) => string;
+  },
+): Promise<StorefrontItems> {
+  const closed: StorefrontItems = {
+    enabled: false,
+    orgId,
+    currency: input.currency,
+    locale: input.locale,
+    shipping: input.label(0),
+    shippingFlat: 0,
+    checkoutNote: '',
+    items: [],
+  };
+
+  if (!input.open) return closed;
+
+  const supabase = createAdminClient();
+  const [settings, onSale] = await Promise.all([
+    supabase.from('store_settings').select('shipping_flat, checkout_note').eq('org_id', orgId).maybeSingle(),
+    supabase
+      .from('inv_items')
+      .select('id, name, description, price, image_url, unit, tax_rate_pct')
+      .eq('org_id', orgId)
+      .eq('kind', 'product')
+      .eq('status', 'active')
+      .eq('sell_online', true)
+      .order('lower(name)')
+      .limit(200),
+  ]);
+
+  const row = (settings.error ? null : settings.data) as { shipping_flat: string | number; checkout_note: string | null } | null;
+  const fee = Number(row?.shipping_flat ?? 0);
+
+  const items: StoreCartItem[] = ((onSale.error ? [] : onSale.data ?? []) as unknown as InvStoreRow[])
+    .map((item) => ({
+      id: item.id,
+      name: item.name,
+      price: input.label(Number(item.price)),
+      amount: Number(item.price),
+      taxPct: Number(item.tax_rate_pct),
+      unit: item.unit,
+      body: item.description ?? '',
+      image: item.image_url ?? '',
+    }));
+
+  return {
+    enabled: true,
+    orgId,
+    currency: input.currency,
+    locale: input.locale,
+    shipping: input.label(fee),
+    shippingFlat: fee,
+    checkoutNote: row?.checkout_note ?? '',
+    items,
   };
 }
 
@@ -212,4 +311,10 @@ interface InvProductRow {
   description: string | null;
   price: number;
   image_url: string | null;
+}
+
+/** The same row with the two columns only a cart reads, both of them `not null` in 0011/0012. */
+interface InvStoreRow extends InvProductRow {
+  unit: string;
+  tax_rate_pct: number;
 }

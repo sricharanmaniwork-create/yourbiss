@@ -26,6 +26,7 @@ import {
   RectangleHorizontal,
   Share2,
   ShoppingBag,
+  ShoppingCart,
   Square,
   SquarePlay,
   TextAlignJustify,
@@ -73,6 +74,7 @@ const ICONS: Record<string, LucideIcon> = {
   FileInput,
   CalendarClock,
   ShoppingBag,
+  ShoppingCart,
 };
 
 export function BlockIcon({ name, size = 15, className }: { name: string; size?: number; className?: string }) {

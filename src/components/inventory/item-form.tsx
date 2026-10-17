@@ -18,10 +18,12 @@ export function ItemForm({
   orgId,
   item,
   hasHistory = false,
+  storeEnabled = false,
 }: {
   orgId: string;
   item?: InvItem | null;
   hasHistory?: boolean;
+  storeEnabled?: boolean;
 }) {
   const router = useRouter();
   const { state, pending, run, fieldError } = useAction();
@@ -34,6 +36,8 @@ export function ItemForm({
   const [cost, setCost] = useState(String(item?.cost ?? '0'));
   const [trackStock, setTrackStock] = useState(item?.track_stock ?? true);
   const [reorderPoint, setReorderPoint] = useState(item?.reorder_point === null || item?.reorder_point === undefined ? '' : String(item.reorder_point));
+  const [taxRate, setTaxRate] = useState(String(item?.tax_rate_pct ?? '0'));
+  const [sellOnline, setSellOnline] = useState(item?.sell_online ?? false);
   const [description, setDescription] = useState(item?.description ?? '');
   const [imageUrl, setImageUrl] = useState(item?.image_url ?? '');
 
@@ -49,6 +53,8 @@ export function ItemForm({
     cost,
     track_stock: trackStock,
     reorder_point: reorderPoint,
+    tax_rate_pct: taxRate,
+    sell_online: sellOnline,
     description,
     image_url: imageUrl,
   };
@@ -106,7 +112,7 @@ export function ItemForm({
           </Field>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-[auto_1fr] sm:items-end">
+        <div className="grid gap-4 sm:grid-cols-[auto_1fr_1fr] sm:items-end">
           <Field label="Counted in stock" htmlFor="inv-track" hint={kind === 'service' ? 'A service is not counted' : undefined}>
             <div className="flex h-9 items-center gap-2.5">
               <Switch id="inv-track" checked={trackStock} disabled={frozen || kind === 'service'} onChange={setTrackStock} label="Counted in stock" />
@@ -130,6 +136,43 @@ export function ItemForm({
               onChange={(e) => setReorderPoint(e.target.value)}
             />
           </Field>
+          <Field
+            label="Tax on online sales"
+            htmlFor="inv-tax"
+            hint="A percentage added to the price when Store bills a basket"
+            error={fieldError('tax_rate_pct')}
+          >
+            <Input
+              id="inv-tax"
+              type="number"
+              min={0}
+              max={100}
+              step="0.01"
+              value={taxRate}
+              invalid={!!fieldError('tax_rate_pct')}
+              onChange={(e) => setTaxRate(e.target.value)}
+            />
+          </Field>
+        </div>
+
+        <div className="rounded-md border border-line bg-raised px-3.5 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium text-ink">Sell this item on the storefront</p>
+              <p className="mt-0.5 text-[12px] leading-relaxed text-muted">
+                {storeEnabled
+                  ? 'A visitor can put it in a cart and order it. Nothing is on sale until it is turned on here, one item at a time.'
+                  : 'Store is switched off for this workspace, so nothing shows for a visitor yet — the flag is kept for when it is turned on.'}
+              </p>
+            </div>
+            <Switch checked={sellOnline} onChange={setSellOnline} label="Sell this item on the storefront" />
+          </div>
+          {sellOnline && counted && (
+            <p className="mt-2 text-[12px] leading-relaxed text-ink-soft">
+              This item is counted, so a cart is checked against the shelf when it is placed and the quantity leaves the
+              ledger when the order is confirmed.
+            </p>
+          )}
         </div>
 
         <Field label="Description" htmlFor="inv-description" hint="Shown to nobody but your team" error={fieldError('description')}>

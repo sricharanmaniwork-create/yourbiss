@@ -40,6 +40,7 @@ export default async function ItemDetailPage({ params }: { params: Promise<Param
   const locale = workspace.org.locale;
   const currency = workspace.org.currency;
   const canAdmin = workspace.role === 'owner' || workspace.role === 'admin';
+  const storeEnabled = workspace.apps.store === true;
 
   const item = await getInvItem(itemId);
   if (!item || item.org_id !== orgId) notFound();
@@ -59,8 +60,10 @@ export default async function ItemDetailPage({ params }: { params: Promise<Param
           <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted">
             <StatusBadge state={item.status} />
             <Badge tone={item.kind === 'product' ? 'neutral' : 'brand'}>{item.kind}</Badge>
+            {item.sell_online && <Badge tone={storeEnabled ? 'success' : 'warning'}>on the storefront</Badge>}
             <span>
-              {item.sku ?? 'no code'} · sells at {formatAmount(item.price, currency, locale)} · costs{' '}
+              {item.sku ?? 'no code'} · sells at {formatAmount(item.price, currency, locale)}
+              {item.tax_rate_pct > 0 ? ` plus ${item.tax_rate_pct}% tax` : ''} · costs{' '}
               {formatAmount(item.cost, currency, locale)}
             </span>
           </p>
@@ -145,7 +148,7 @@ export default async function ItemDetailPage({ params }: { params: Promise<Param
             </CardBody>
           </Card>
 
-          <ItemForm orgId={orgId} item={item} hasHistory={item.stock.movements > 0} />
+          <ItemForm orgId={orgId} item={item} hasHistory={item.stock.movements > 0} storeEnabled={storeEnabled} />
 
           <Card>
             <CardHeader title="Description" />

@@ -117,6 +117,32 @@ const KEY_INFO: TemplateKeyInfo[] = [
       { name: 'accept_url', meaning: 'The link that accepts the invitation' },
     ],
   },
+  {
+    key: 'store_order_confirmation',
+    label: 'Order receipt (buyer)',
+    note: 'Sent to the buyer when a storefront order is placed. The lines and the total are what the order recorded, not today’s prices.',
+    tokens: [
+      { name: 'order_number', meaning: 'The reference on the order' },
+      { name: 'customer_name', meaning: 'The name they ordered under' },
+      { name: 'total', meaning: 'What the order came to' },
+      { name: 'lines', meaning: 'Every line, one per row' },
+      { name: 'address', meaning: 'Where it is going' },
+      { name: 'org_name', meaning: 'This workspace’s name' },
+    ],
+  },
+  {
+    key: 'team_new_order',
+    label: 'New order (team)',
+    note: 'Sent to the owner of this workspace when a storefront order arrives, so nothing waits in a basket unnoticed.',
+    tokens: [
+      { name: 'order_number', meaning: 'The reference on the order' },
+      { name: 'customer_name', meaning: 'The name they ordered under' },
+      { name: 'customer_email', meaning: 'The address the receipt went to' },
+      { name: 'total', meaning: 'What the order came to' },
+      { name: 'order_url', meaning: 'The link that opens the order' },
+      { name: 'org_name', meaning: 'This workspace’s name' },
+    ],
+  },
 ];
 
 /**

@@ -32,6 +32,11 @@ import type {
   Site,
   SitePage,
   SiteVersion,
+  StoreCounts,
+  StoreOrder,
+  StoreOrderLine,
+  StoreOrderStatus,
+  StoreSettings,
   UserProfile,
 } from '@/lib/types';
 
@@ -800,6 +805,8 @@ export interface InvItemListOptions {
   /** "Needs ordering" and "nothing left" are questions about a sum, so they filter after the read. */
   lowOnly?: boolean;
   outOnly?: boolean;
+  /** Store's question, and a plain column by the time 0012 is applied. */
+  onSaleOnly?: boolean;
   limit?: number;
 }
 
@@ -808,6 +815,7 @@ export async function listInvItems(orgId: string, options: InvItemListOptions = 
   let query = supabase.from('inv_items').select('*').eq('org_id', orgId);
   if (options.kind) query = query.eq('kind', options.kind);
   if (options.status) query = query.eq('status', options.status);
+  if (options.onSaleOnly) query = query.eq('sell_online', true);
   const term = searchFilter(options.search);
   if (term) query = query.or(`name.ilike."%${term}%",sku.ilike."%${term}%"`);
 
@@ -1034,6 +1042,154 @@ export async function getInvPurchase(purchaseId: string): Promise<InvPurchaseDet
     },
     lines: lines.map((line) => ({ ...line, item: itemMap.get(line.item_id) ?? null })),
   };
+}
+
+// --- store -------------------------------------------------------------------
+
+/**
+ * Reads for the shop counter.
+ *
+ * An order's money lives on the row, because `store_place_order` writes it once from
+ * the item list and the guard refuses to change it afterwards — so a list prints the
+ * total it read rather than re-adding the lines. A *quantity* is still Inventory's
+ * business: what is left on a shelf comes from the ledger, never from the document that
+ * emptied it.
+ */
+export async function storeCounts(orgId: string): Promise<StoreCounts> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('store_counts', { p_org_id: orgId });
+  if (error) throw new Error(error.message);
+  return (data ?? {}) as StoreCounts;
+}
+
+/** Null until somebody saves the storefront settings; a missing row means a free delivery. */
+export async function getStoreSettings(orgId: string): Promise<StoreSettings | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from('store_settings').select('*').eq('org_id', orgId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as StoreSettings | null) ?? null;
+}
+
+export interface StoreOrderListOptions {
+  search?: string;
+  status?: StoreOrderStatus;
+  statuses?: StoreOrderStatus[];
+  paid?: 'paid' | 'unpaid';
+  contactId?: string;
+  limit?: number;
+}
+
+export async function listStoreOrders(
+  orgId: string,
+  options: StoreOrderListOptions = {},
+): Promise<StoreOrder[]> {
+  const supabase = await createClient();
+  let query = supabase.from('store_orders').select('*').eq('org_id', orgId);
+  if (options.status) query = query.eq('status', options.status);
+  if (options.statuses?.length) query = query.in('status', options.statuses);
+  if (options.paid === 'paid') query = query.not('paid_at', 'is', null);
+  if (options.paid === 'unpaid') query = query.is('paid_at', null);
+  if (options.contactId) query = query.eq('contact_id', options.contactId);
+  const term = searchFilter(options.search);
+  if (term) {
+    query = query.or(
+      `number.ilike."%${term}%",buyer_name.ilike."%${term}%",buyer_email.ilike."%${term}%"`,
+    );
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false }).limit(options.limit ?? 250);
+  if (error) throw new Error(error.message);
+
+  const orders = rows<StoreOrder>(data);
+  if (orders.length === 0) return orders;
+
+  // A second keyed read, because the list shows how many lines and how many units an
+  // order carries. The money is never recomputed here — a list that re-added the lines
+  // would be a second opinion about a document that already has one.
+  const { data: lineData, error: linesError } = await supabase
+    .from('store_order_lines')
+    .select('order_id, qty')
+    .in('order_id', orders.map((order) => order.id));
+  if (linesError) throw new Error(linesError.message);
+
+  const tallies = new Map<string, { lines: number; units: number }>();
+  for (const line of rows<{ order_id: string; qty: number | string }>(lineData)) {
+    const tally = tallies.get(line.order_id) ?? { lines: 0, units: 0 };
+    tally.lines += 1;
+    tally.units += Number(line.qty);
+    tallies.set(line.order_id, tally);
+  }
+
+  return orders.map((order) => ({
+    ...order,
+    line_count: tallies.get(order.id)?.lines ?? 0,
+    units: tallies.get(order.id)?.units ?? 0,
+  }));
+}
+
+export interface StoreOrderDetail {
+  order: StoreOrder;
+  lines: StoreOrderLine[];
+}
+
+export async function getStoreOrder(orderId: string): Promise<StoreOrderDetail | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from('store_orders').select('*').eq('id', orderId).maybeSingle();
+  if (error) throw new Error(error.message);
+
+  const order = row<StoreOrder | null>(data);
+  if (!order) return null;
+
+  const [linesResult, contactResult] = await Promise.all([
+    supabase.from('store_order_lines').select('*').eq('order_id', order.id).order('created_at'),
+    order.contact_id
+      ? supabase.from('crm_contacts').select('id, name, email').eq('id', order.contact_id).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+  if (linesResult.error) throw new Error(linesResult.error.message);
+
+  const lines = rows<StoreOrderLine>(linesResult.data);
+  const itemIds = [...new Set(lines.map((line) => line.item_id))];
+
+  // The item row is only decoration here — a line prints the name and price it was
+  // sold under. When Inventory is switched off this read answers with nothing, and the
+  // document still reads correctly.
+  const itemsResult = itemIds.length
+    ? await supabase
+        .from('inv_items')
+        .select('id, name, unit, sku, track_stock, sell_online')
+        .in('id', itemIds)
+    : { data: [], error: null };
+  if (itemsResult.error) throw new Error(itemsResult.error.message);
+
+  const itemMap = new Map(
+    rows<Pick<InvItem, 'id' | 'name' | 'unit' | 'sku' | 'track_stock' | 'sell_online'>>(itemsResult.data).map(
+      (item) => [item.id, item],
+    ),
+  );
+
+  const contact = contactResult.data as Pick<CrmContact, 'id' | 'name' | 'email'> | null;
+
+  return {
+    order: { ...order, contact: contact ?? null },
+    lines: lines.map((line) => ({ ...line, item: itemMap.get(line.item_id) ?? null })),
+  };
+}
+
+/**
+ * The ledger entries this order is responsible for.
+ *
+ * Matched by reference rather than by a foreign key, because 0011's ledger answers to
+ * purchase lines only — a sale has no line id to point at, and the order number written
+ * on the movement is the same reference a warehouse reads off a printed document.
+ */
+export async function listOrderMovements(orgId: string, number: string): Promise<InvMovement[]> {
+  const movements = await listInvMovements(orgId, { limit: 300 });
+  return movements.filter(
+    (movement) =>
+      (movement.reason === 'sale' && movement.reference === number) ||
+      (movement.reason === 'customer_return' && movement.reference === `cancelled ${number}`),
+  );
 }
 
 // --- email ------------------------------------------------------------------

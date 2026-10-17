@@ -3,6 +3,7 @@ import type { BlockNode, BlockStyle } from './types';
 import { REGISTRY } from './registry';
 import { richTextToHtml, richTextToPlain } from '@/lib/richtext';
 import type { SiteTheme } from '@/lib/types';
+import { StoreCart } from '@/components/site/store-cart';
 import { colorValue, headingFont, sectionTone, styleFor } from './style';
 
 /**
@@ -37,6 +38,37 @@ export interface RenderProduct {
   image: string;
 }
 
+/**
+ * One item a storefront sells, as the shop window needs it.
+ *
+ * `price` is the formatted string a visitor reads and `amount` the number a basket
+ * multiplies, kept apart on purpose: the label belongs to the workspace's currency and
+ * locale, while the arithmetic is only ever a preview of what the database will re-do
+ * from the item row when the order is written.
+ */
+export interface StoreCartItem {
+  id: string;
+  name: string;
+  price: string;
+  amount: number;
+  taxPct: number;
+  unit: string;
+  body: string;
+  image: string;
+}
+
+/** Everything a `store_cart` block needs, or an honest statement that there is no shop. */
+export interface StorefrontItems {
+  enabled: boolean;
+  orgId: string;
+  currency: string;
+  locale: string;
+  shipping: string;
+  shippingFlat: number;
+  checkoutNote: string;
+  items: StoreCartItem[];
+}
+
 export interface RenderContext {
   theme: SiteTheme;
   /** `live` renders the real page; `canvas` marks unresolved embeds instead of framing 404s. */
@@ -47,6 +79,7 @@ export interface RenderContext {
   services: Record<string, EmbedEntity>;
   staff: Record<string, EmbedEntity>;
   products: RenderProduct[];
+  storefront: StorefrontItems;
 }
 
 const SCHEME_SAFE = /^(https?:\/\/|mailto:|tel:|\/(?!\/)|#)/i;
@@ -1147,6 +1180,70 @@ export function renderBlock(node: BlockNode, ctx: RenderContext): ReactNode {
               ))}
             </Grid>
           )}
+        </div>
+      );
+    }
+
+    case 'store_cart': {
+      const shop = ctx.storefront;
+      if (!shop.enabled) {
+        return (
+          <EmptyNote
+            label={
+              ctx.mode === 'canvas'
+                ? 'Cart needs the Store and Inventory apps switched on for this workspace, in Settings › Apps.'
+                : 'This shop is not taking orders right now.'
+            }
+          />
+        );
+      }
+      if (shop.items.length === 0) {
+        return (
+          <EmptyNote
+            label={
+              ctx.mode === 'canvas'
+                ? 'Nothing in Inventory is on the storefront yet. Switch an item on and it appears in this block.'
+                : 'Nothing is on sale at the moment — please check back.'
+            }
+          />
+        );
+      }
+
+      // The canvas lists what is for sale and stops there. A working basket while
+      // editing would let somebody place a real order against their own shop by
+      // clicking a button they only meant to look at.
+      if (ctx.mode === 'canvas') {
+        return (
+          <div style={{ ...styleFor(styles, theme) }}>
+            {text(p.title) && <h2 style={{ margin: '0 0 20px', fontSize: '27px', fontFamily: headingFont(theme) }}>{text(p.title)}</h2>}
+            <Grid columns={p.columns} gap="16px">
+              {shop.items.map((item) => (
+                <div key={item.id} style={{ border: `1px solid ${theme.colors?.border ?? '#E5E7EB'}`, borderRadius: theme.radius ?? '10px', padding: '14px', background: theme.colors?.surface ?? '#FFFFFF' }}>
+                  <p style={{ margin: 0, fontWeight: 600 }}>{item.name}</p>
+                  {item.body && <p style={{ margin: '6px 0 0', fontSize: '13px', color: theme.colors?.muted ?? '#6B7280' }}>{item.body}</p>}
+                  <p style={{ margin: '8px 0 0', fontWeight: 700, color: theme.colors?.primary ?? '#2E6BE6' }}>
+                    {item.price}
+                    {item.unit ? <span style={{ fontWeight: 400, fontSize: '12.5px', color: theme.colors?.muted ?? '#6B7280' }}> / {item.unit}</span> : null}
+                  </p>
+                </div>
+              ))}
+            </Grid>
+            <p style={{ margin: '14px 0 0', fontSize: '12.5px', color: theme.colors?.muted ?? '#6B7280' }}>
+              A preview of {shop.items.length} {shop.items.length === 1 ? 'item' : 'items'} on sale, with {shop.shipping} delivery. The basket and the order form appear once the page is published.
+            </p>
+          </div>
+        );
+      }
+
+      return (
+        <div style={{ ...styleFor(styles, theme) }}>
+          {text(p.title) && <h2 style={{ margin: '0 0 20px', fontSize: '27px', fontFamily: headingFont(theme) }}>{text(p.title)}</h2>}
+          <StoreCart
+            storefront={shop}
+            theme={theme}
+            cta={text(p.cta) || 'Add to basket'}
+            columns={Math.max(1, Math.min(3, Math.round(num(p.columns, 3))))}
+          />
         </div>
       );
     }

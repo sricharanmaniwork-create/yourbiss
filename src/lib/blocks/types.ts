@@ -37,14 +37,15 @@ export type BlockType =
   // live, data-bound
   | 'form_embed'
   | 'booking_embed'
-  | 'product_grid';
+  | 'product_grid'
+  | 'store_cart';
 
 export const blockTypes = new Set<string>([
   'section', 'columns', 'container', 'heading', 'text', 'image', 'button', 'button_group',
   'divider', 'spacer', 'list', 'quote', 'badge_row', 'video', 'card_grid',
   'feature_row', 'pricing_table', 'gallery', 'faq', 'stats', 'team', 'testimonials',
   'cta_banner', 'navbar', 'footer', 'social_links', 'contact_details', 'map',
-  'newsletter_form', 'form_embed', 'booking_embed', 'product_grid',
+  'newsletter_form', 'form_embed', 'booking_embed', 'product_grid', 'store_cart',
 ]);
 
 export const Align = ['left', 'center', 'right'] as const;

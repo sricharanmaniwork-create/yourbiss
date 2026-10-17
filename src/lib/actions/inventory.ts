@@ -59,6 +59,17 @@ const itemSchema = z.object({
   cost: money.default(0),
   track_stock: z.boolean().default(true),
   reorder_point: optionalCount.nullable().default(null),
+  /**
+   * Store bills a line at the item's own rate, so the percentage lives on the item and
+   * not on a second product table. Two decimals because that is what the column holds.
+   */
+  tax_rate_pct: z.coerce
+    .number()
+    .min(0, 'A tax rate cannot be less than nothing')
+    .max(100, 'A tax rate is a percentage of the price')
+    .default(0)
+    .transform((value) => Math.round(value * 100) / 100),
+  sell_online: z.boolean().default(false),
   image_url: z
     .string()
     .trim()
@@ -80,6 +91,8 @@ function itemColumns(input: z.infer<typeof itemSchema>) {
     cost: input.cost,
     track_stock: tracked,
     reorder_point: tracked && input.reorder_point !== null ? input.reorder_point : null,
+    tax_rate_pct: input.tax_rate_pct,
+    sell_online: input.sell_online,
     image_url: input.image_url === '' ? null : input.image_url,
   };
 }

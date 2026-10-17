@@ -73,7 +73,7 @@ export const MODULES: ModuleDef[] = [
     href: '/app/store',
     icon: ShoppingCart,
     tagline: 'Product pages and carts built from the same canvas.',
-    state: 'planned',
+    state: 'live',
     appKey: 'store',
   },
   {

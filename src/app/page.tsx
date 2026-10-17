@@ -19,7 +19,7 @@ const APPS = [
   { name: 'Websites', icon: Globe, body: `A blank canvas, ${BLOCK_DEFS.length} blocks, and a publish button that versions the whole site.`, live: true },
   { name: 'Bookings', icon: CalendarDays, body: 'Services, staff calendars, breaks and timezones. Customers pick a slot that is genuinely free.', live: true },
   { name: 'Forms', icon: FileText, body: 'Conditional logic, file intake, responses you can export. Embed it in any page you build.', live: true },
-  { name: 'Store', icon: ShoppingCart, body: 'Product pages and carts built from the same canvas, priced from your inventory.', live: false },
+  { name: 'Store', icon: ShoppingCart, body: 'Product pages and carts built from the same canvas, priced from your inventory.', live: true },
   { name: 'CRM', icon: Users, body: 'Every form response and booking becomes a contact with a real activity timeline.', live: true },
   { name: 'Inventory', icon: Package, body: 'Stock kept as a ledger nobody can rewrite, pricing, and the suppliers you buy from.', live: true },
   { name: 'Automations', icon: Workflow, body: 'When something happens in one app, do something in another. Rules, not guesses.', live: false },
