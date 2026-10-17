@@ -126,7 +126,8 @@ create table public.store_orders (
   id           uuid primary key default gen_random_uuid(),
   org_id       uuid not null references public.orgs (id) on delete cascade,
   -- Minted by youbiss.doc_number from the same counter 0011 built, so SO-2026-0001 and
-  -- PO-2026-0007 never collide and neither is retyped.  number       text not null,
+  -- PO-2026-0007 never collide and neither is retyped.
+  number       text not null,
   status       public.store_order_status not null default 'placed',
   buyer_name   text not null check (char_length(buyer_name) between 1 and 140),
   buyer_email  citext not null check (char_length(buyer_email::text) <= 254),
@@ -821,9 +822,14 @@ grant execute on function youbiss.store_set_status(uuid, text) to authenticated,
 grant execute on function youbiss.store_counts(uuid) to authenticated, service_role;
 
 -- The counter and the checkout are reached only from inside a definer body or from the
--- server route's service-role client, so neither is offered to a browser.
+-- server route's service-role client, so neither is offered to a browser. The inner
+-- checkout still needs its own grant to `service_role`: the `public` wrapper is SECURITY
+-- INVOKER, so the call executes as the role that came in, and a wrapper that cannot reach
+-- the body behind it fails the order at the last step — the same pair 0004 writes out for
+-- `record_form_submission`.
 revoke all on function youbiss.doc_number(uuid, text) from public, anon, authenticated;
 revoke all on function youbiss.store_place_order(uuid, jsonb, jsonb) from public, anon, authenticated;
+grant execute on function youbiss.store_place_order(uuid, jsonb, jsonb) to service_role;
 
 -- ---------------------------------------------------------------------------
 -- The RPC surface, same as 0007, 0010 and 0011: PostgREST only exposes `public`, so a

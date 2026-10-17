@@ -40,21 +40,27 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 ## Database
 
-`supabase/migrations/` applies in numeric order. 0001–0007 are already applied to the
-project; **0008 and 0009 are still to be run by hand**:
+`supabase/migrations/` applies in numeric order. 0001–0011 are applied to the project;
+**0012 is still to be run by hand**:
 
-- `0008_api_role_grants.sql` — the privileges the RLS policies in 0001–0007 already assume.
-  Without it, `authenticated` reaches tables it is allowed to select from but has no grant on.
-- `0009_form_logic_hidden_fields.sql` — teaches the submission guard about conditional logic,
-  so a question the visitor was never shown is not counted as an unanswered one.
+- `0012_store.sql` — the two columns the storefront needs on Inventory's item list
+  (`tax_rate_pct`, `sell_online`), the workspace's shipping and checkout note, and orders
+  with their lines.
 
 Apply them in Supabase Studio → SQL editor, or `supabase db push` against the project.
+**When pasting into the SQL editor, wrap the file in a transaction** — `begin;` above the
+first statement, `commit;` below the last. The editor otherwise runs a script one statement
+at a time and leaves whatever it got through behind when one fails, and `supabase db push`
+wraps each file only because it does the wrapping itself.
 
-Two rules this repository works under:
+Three rules this repository works under:
 
 * An applied migration is immutable. A change in behaviour is a new file, never an edit.
 * Every new table needs its own `GRANT` and its own policies — Postgres grants nothing to
   `anon`/`authenticated` by default and Supabase's API roles are not exempt.
+* A migration that failed halfway is repaired before it is re-run, not edited around the
+  objects it left behind. `supabase/repairs/` holds those repairs, and
+  `supabase/repairs/diagnose_app_state.sql` says which state the database is actually in.
 
 ## Mail
 
