@@ -370,6 +370,9 @@ create trigger youbiss_inv_purchase_target
 -- line says so, and never comes back once it has. This is what lets the hub print
 -- `received` without re-adding up the lines, and it is why no action in the app has a
 -- status dropdown: the transitions are the states, not a preference.
+--
+-- The same trigger holds the header still, because a state machine that lets the
+-- document it guards be rewritten underneath it guards nothing.
 create or replace function youbiss.inv_purchase_status_guard()
 returns trigger
 language plpgsql
@@ -384,6 +387,24 @@ begin
       raise exception 'a new purchase order starts as a draft' using errcode = '42809';
     end if;
     return new;
+  end if;
+
+  -- The reference never changes, and neither do the terms once the order leaves
+  -- draft. The lines freeze for the same reason — the supplier holds a copy — and an
+  -- order whose date, supplier or note can be quietly moved afterwards is not a
+  -- document, it is a draft that somebody forgot to delete.
+  if new.number is distinct from old.number then
+    raise exception 'a purchase order keeps the number it was given' using errcode = '42809';
+  end if;
+
+  if old.status <> 'draft' and (
+       new.supplier_id is distinct from old.supplier_id
+    or new.order_date is distinct from old.order_date
+    or new.expected_date is distinct from old.expected_date
+    or new.notes is distinct from old.notes
+  ) then
+    raise exception 'a purchase order that has been sent is not edited — cancel it or order the difference'
+      using errcode = '42809';
   end if;
 
   if new.status is distinct from old.status then
