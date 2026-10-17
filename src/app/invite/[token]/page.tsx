@@ -56,7 +56,9 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
     return <Outcome ok={false} title="That invitation is no longer open" body="It has already been accepted or was withdrawn." />;
   }
 
-  redirect('/app?invited=1');
+  // The slug, not `1`: the dashboard names the workspace they joined, and a person who has
+  // three of them needs to know which one to look for in the switcher.
+  redirect(`/app?invited=${encodeURIComponent(accepted.org_slug)}`);
 }
 
 function Outcome({ ok, title, body }: { ok: boolean; title: string; body: string }) {

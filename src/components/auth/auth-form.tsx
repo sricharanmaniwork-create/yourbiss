@@ -22,7 +22,6 @@ const ERROR_COPY: Record<string, string> = {
 const NOTICE_COPY: Record<string, string> = {
   confirm: 'We sent a confirmation link. Open it, then sign in.',
   no_account: 'Sign in with your existing password, or check your inbox for a reset link.',
-  invited: 'You have been added to a workspace. Pick it from the switcher above.',
 };
 
 /**

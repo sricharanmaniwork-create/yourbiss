@@ -10,12 +10,21 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { GettingStarted } from '@/components/dashboard/getting-started';
 import { NewFormButton } from '@/components/forms/new-form-button';
 import { isLive } from '@/lib/modules';
-import { formatInZone } from '@/lib/utils';
+import { formatInZone, isValidSlug } from '@/lib/utils';
 import { addDays, dateInZone } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Dashboard' };
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ invited?: string }>;
+}) {
+  // Accepting an invitation lands here with the workspace it was for. The active one is
+  // whichever the cookie last chose, so the two are not always the same, and a person who
+  // cannot find the workspace they just joined has nowhere else to look.
+  const params = await searchParams;
+  const invited = params.invited && isValidSlug(params.invited) ? params.invited : null;
   const workspace = await requireWorkspace();
   const { org } = workspace;
 
@@ -38,6 +47,15 @@ export default async function DashboardPage() {
 
   return (
     <>
+      {invited && (
+        <p role="status" className="mb-4 rounded-md border border-[#c6e7d0] bg-[#e6f4ea] px-3.5 py-2.5 text-[12.5px] leading-relaxed text-[#0b6b3c]">
+          You are now a member of the workspace <strong className="font-semibold">/{invited}</strong>.
+          {invited === org.slug
+            ? ' It is the one in front of you.'
+            : ' It is not the workspace you are looking at — choose it from the switcher at the top of the sidebar.'}
+        </p>
+      )}
+
       <PageHeader
         title={`Good to see you, ${org.name}`}
         description={`Today is ${new Intl.DateTimeFormat('en-IN', { dateStyle: 'full', timeZone: org.timezone }).format(new Date())} in ${org.timezone.replace('_', ' ')}.`}

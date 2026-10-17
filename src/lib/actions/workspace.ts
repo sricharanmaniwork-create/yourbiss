@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { getSession } from '@/lib/workspace';
+import { getSession, APP_KEYS } from '@/lib/workspace';
 import { isValidSlug, slugify } from '@/lib/utils';
 
 const ORG_COOKIE = 'youbiss_org';
@@ -65,13 +65,14 @@ export async function createWorkspace(input: { name: string }): Promise<CreateWo
     .insert({ org_id: org.id, user_id: session.user.id, role: 'owner' });
   if (memberError) throw new Error(memberError.message);
 
-  // Mirror what the onboarding trigger seeds for a brand-new account, but only
-  // the three modules this build actually has screens for.
-  const { error: appsError } = await admin.from('org_apps').insert([
-    { org_id: org.id, app_key: 'website' },
-    { org_id: org.id, app_key: 'forms' },
-    { org_id: org.id, app_key: 'bookings' },
-  ]);
+  // Every app the enum knows, switched on — the same seed `youbiss.handle_new_user()` puts
+  // behind the first workspace. A missing row is not "off until you turn it on": RLS and
+  // every SQL function ask `youbiss.app_enabled()`, which wants a row that says enabled, so
+  // an app left out here arrives switched off and its screens refuse the member who made
+  // this workspace on purpose.
+  const { error: appsError } = await admin
+    .from('org_apps')
+    .insert(APP_KEYS.map((key) => ({ org_id: org.id, app_key: key, status: 'enabled' })));
   if (appsError) throw new Error(appsError.message);
 
   const store = await cookies();
