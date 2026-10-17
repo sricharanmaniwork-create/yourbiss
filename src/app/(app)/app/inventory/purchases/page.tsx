@@ -26,7 +26,6 @@ export default async function PurchasesPage({
 }) {
   const workspace = await requireWorkspace();
   const orgId = workspace.org.id;
-  const zone = workspace.org.timezone;
   const locale = workspace.org.locale;
   const currency = workspace.org.currency;
   const query = await searchParams;

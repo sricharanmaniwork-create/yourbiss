@@ -247,8 +247,3 @@ function Figure({
     </div>
   );
 }
-
-/** The form needs a date to prefill for a new order; an existing one already has its own. */
-function dateInZoneOf(day: string) {
-  return day;
-}

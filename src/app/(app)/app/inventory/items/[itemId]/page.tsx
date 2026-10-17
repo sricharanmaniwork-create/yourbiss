@@ -154,7 +154,6 @@ export default async function ItemDetailPage({ params }: { params: Promise<Param
                 {item.description || 'Nobody has written what this is yet.'}
               </p>
               {item.image_url && (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img src={item.image_url} alt="" className="mt-3 max-h-[220px] w-auto rounded-md border border-line" />
               )}
             </CardBody>
