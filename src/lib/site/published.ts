@@ -3,8 +3,9 @@ import 'server-only';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { pageTreeSchema, type PageTree } from '@/lib/blocks/types';
 import { normalizeTheme } from '@/lib/blocks/style';
-import type { EmbedEntity } from '@/lib/blocks/render';
+import type { EmbedEntity, RenderProduct } from '@/lib/blocks/render';
 import type { SiteTheme } from '@/lib/types';
+import { formatAmount } from '@/lib/utils';
 
 /**
  * Reads for published pages, which an anonymous visitor sees.
@@ -39,6 +40,14 @@ export interface PublishedPage {
   seo_description: string | null;
   og_image_url: string | null;
   tree: PageTree;
+}
+
+/** Everything a live page's blocks may point at, read in one pass. */
+export interface EmbedEntities {
+  forms: Record<string, EmbedEntity>;
+  services: Record<string, EmbedEntity>;
+  staff: Record<string, EmbedEntity>;
+  products: RenderProduct[];
 }
 
 export async function findPublishedSite(orgSlug: string, siteSlug: string): Promise<PublicSite | null> {
@@ -134,21 +143,31 @@ export async function publishedPaths(siteId: string): Promise<string[]> {
 }
 
 /**
- * Rows a `form_embed` or `booking_embed` block points at. The frame is only
- * rendered when the id resolves here, so a deleted form cannot leave a broken
+ * Rows a `form_embed`, `booking_embed` or `product_grid` block points at. The frame
+ * is only rendered when the id resolves here, so a deleted form cannot leave a broken
  * iframe on a live page.
+ *
+ * Products are the one list that can legitimately come back empty for a reason the
+ * visitor should not see: Inventory may be switched off for this workspace, or its
+ * tables may not exist yet on a deploy that has not been migrated. Neither is allowed
+ * to take a customer's website down, so a failed product read is an empty shelf.
  */
-export async function embedEntities(orgId: string): Promise<{
-  forms: Record<string, EmbedEntity>;
-  services: Record<string, EmbedEntity>;
-  staff: Record<string, EmbedEntity>;
-}> {
+export async function embedEntities(orgId: string): Promise<EmbedEntities> {
   const supabase = createAdminClient();
 
-  const [forms, services, staff] = await Promise.all([
+  const [forms, services, staff, org, products] = await Promise.all([
     supabase.from('forms').select('id, title, slug').eq('org_id', orgId).eq('status', 'published'),
     supabase.from('booking_services').select('id, name, slug').eq('org_id', orgId).eq('status', 'active'),
     supabase.from('booking_staff').select('id, name, slug').eq('org_id', orgId).eq('status', 'active'),
+    supabase.from('orgs').select('apps, currency, locale').eq('id', orgId).maybeSingle(),
+    supabase
+      .from('inv_items')
+      .select('id, name, description, price, image_url')
+      .eq('org_id', orgId)
+      .eq('kind', 'product')
+      .eq('status', 'active')
+      .order('lower(name)')
+      .limit(24),
   ]);
 
   const toMap = (data: unknown, labelKey: 'title' | 'name'): Record<string, EmbedEntity> => {
@@ -163,10 +182,34 @@ export async function embedEntities(orgId: string): Promise<{
   if (forms.error) throw new Error(forms.error.message);
   if (services.error) throw new Error(services.error.message);
   if (staff.error) throw new Error(staff.error.message);
+  if (org.error) throw new Error(org.error.message);
+
+  const workspace = org.data as unknown as { apps: unknown; currency: string | null; locale: string | null } | null;
+  const apps = (workspace?.apps ?? {}) as Record<string, unknown>;
+
+  const shown: RenderProduct[] =
+    apps.inventory === true && !products.error
+      ? ((products.data ?? []) as unknown as InvProductRow[]).map((item) => ({
+          id: item.id,
+          name: item.name,
+          price: formatAmount(Number(item.price), workspace?.currency ?? 'INR', workspace?.locale ?? 'en-IN'),
+          body: item.description ?? '',
+          image: item.image_url ?? '',
+        }))
+      : [];
 
   return {
     forms: toMap(forms.data, 'title'),
     services: toMap(services.data, 'name'),
     staff: toMap(staff.data, 'name'),
+    products: shown,
   };
+}
+
+interface InvProductRow {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  image_url: string | null;
 }

@@ -20,8 +20,8 @@ const APPS = [
   { name: 'Bookings', icon: CalendarDays, body: 'Services, staff calendars, breaks and timezones. Customers pick a slot that is genuinely free.', live: true },
   { name: 'Forms', icon: FileText, body: 'Conditional logic, file intake, responses you can export. Embed it in any page you build.', live: true },
   { name: 'Store', icon: ShoppingCart, body: 'Product pages and carts built from the same canvas, priced from your inventory.', live: false },
-  { name: 'CRM', icon: Users, body: 'Every form response and booking becomes a contact with a real activity timeline.', live: false },
-  { name: 'Inventory', icon: Package, body: 'Stock, pricing, offers and suppliers — the numbers behind the store.', live: false },
+  { name: 'CRM', icon: Users, body: 'Every form response and booking becomes a contact with a real activity timeline.', live: true },
+  { name: 'Inventory', icon: Package, body: 'Stock kept as a ledger nobody can rewrite, pricing, and the suppliers you buy from.', live: true },
   { name: 'Automations', icon: Workflow, body: 'When something happens in one app, do something in another. Rules, not guesses.', live: false },
 ];
 

@@ -380,6 +380,125 @@ export interface CrmActivity {
   author?: Pick<UserProfile, 'display_name'> | null;
 }
 
+// --- inventory ---------------------------------------------------------------
+
+export type InvItemKind = 'product' | 'service';
+export type InvItemStatus = 'active' | 'archived';
+/** Why a pile of boxes moved. `sale` and `customer_return` are written by Store. */
+export type InvMovementReason = 'opening' | 'purchase' | 'sale' | 'customer_return' | 'adjustment';
+export type InvPurchaseStatus = 'draft' | 'ordered' | 'partially_received' | 'received' | 'cancelled';
+
+export interface InvItem {
+  id: string;
+  org_id: string;
+  name: string;
+  sku: string | null;
+  kind: InvItemKind;
+  status: InvItemStatus;
+  unit: string;
+  description: string | null;
+  price: number;
+  cost: number;
+  track_stock: boolean;
+  reorder_point: number | null;
+  image_url: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * What the ledger says about one item. It is never a column — this is the sum of
+ * `inv_movements` — so a shelf and its history cannot tell different stories.
+ */
+export interface InvStockLevel {
+  on_hand: number;
+  movements: number;
+  last_movement_at: string | null;
+}
+
+export interface InvMovement {
+  id: string;
+  org_id: string;
+  item_id: string;
+  delta: number;
+  reason: InvMovementReason;
+  unit_cost: number | null;
+  reference: string | null;
+  purchase_line_id: string | null;
+  created_by: string | null;
+  created_at: string;
+  item?: Pick<InvItem, 'name' | 'unit' | 'sku'> | null;
+  author?: Pick<UserProfile, 'display_name' | 'avatar_url' | 'email'> | null;
+}
+
+export interface InvSupplier {
+  id: string;
+  org_id: string;
+  name: string;
+  contact: string | null;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  notes: string | null;
+  status: InvItemStatus;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvPurchase {
+  id: string;
+  org_id: string;
+  number: string;
+  supplier_id: string;
+  status: InvPurchaseStatus;
+  order_date: string;
+  expected_date: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  supplier?: Pick<InvSupplier, 'name' | 'contact' | 'email' | 'phone'> | null;
+  line_count?: number;
+  /** Sum of the line totals, counted by the read rather than stored on the row. */
+  total?: number;
+  received_qty?: number;
+  outstanding_qty?: number;
+}
+
+export interface InvPurchaseLine {
+  id: string;
+  purchase_id: string;
+  org_id: string;
+  item_id: string;
+  description: string;
+  qty: number;
+  unit_cost: number;
+  received_qty: number;
+  total: number;
+  created_at: string;
+  updated_at: string;
+  item?: Pick<InvItem, 'name' | 'unit' | 'sku' | 'track_stock'> | null;
+}
+
+/** The thirteen numbers `youbiss.inv_counts` answers in one round trip. */
+export interface InvCounts {
+  items: number;
+  products: number;
+  services: number;
+  tracked: number;
+  low_stock: number;
+  out_of_stock: number;
+  stock_value: number;
+  suppliers: number;
+  purchases_open: number;
+  purchases_value: number;
+  awaiting_goods: number;
+  receipts_30d: number;
+  movements_30d: number;
+}
+
 // --- email -----------------------------------------------------------------
 
 export interface EmailSettingsRow {

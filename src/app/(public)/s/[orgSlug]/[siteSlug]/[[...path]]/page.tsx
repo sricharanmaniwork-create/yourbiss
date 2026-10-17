@@ -77,6 +77,7 @@ export default async function PublishedSitePage({ params }: { params: Promise<Pa
     forms: embeds.forms,
     services: embeds.services,
     staff: embeds.staff,
+    products: embeds.products,
   };
 
   return (

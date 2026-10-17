@@ -22,6 +22,21 @@ export interface EmbedEntity {
   slug?: string;
 }
 
+/**
+ * A product the Inventory app is showing on a site.
+ *
+ * `price` arrives already formatted, because the workspace's currency and locale
+ * belong to whoever read the row out of the database, not to a block that has to
+ * render the same way in a canvas and on a live page.
+ */
+export interface RenderProduct {
+  id: string;
+  name: string;
+  price: string;
+  body: string;
+  image: string;
+}
+
 export interface RenderContext {
   theme: SiteTheme;
   /** `live` renders the real page; `canvas` marks unresolved embeds instead of framing 404s. */
@@ -31,6 +46,7 @@ export interface RenderContext {
   forms: Record<string, EmbedEntity>;
   services: Record<string, EmbedEntity>;
   staff: Record<string, EmbedEntity>;
+  products: RenderProduct[];
 }
 
 const SCHEME_SAFE = /^(https?:\/\/|mailto:|tel:|\/(?!\/)|#)/i;
@@ -1092,21 +1108,40 @@ export function renderBlock(node: BlockNode, ctx: RenderContext): ReactNode {
     }
 
     case 'product_grid': {
-      const products = items(p.products);
+      const fromInventory = p.source === 'inventory';
+      const shown: RenderProduct[] = fromInventory
+        ? ctx.products
+        : items(p.products).map((product, index) => ({
+            id: String(index),
+            name: text(product.name),
+            price: text(product.price),
+            body: text(product.body),
+            image: text(product.image),
+          }));
+
       return (
         <div style={{ ...styleFor(styles, theme) }}>
           {text(p.title) && <h2 style={{ margin: '0 0 20px', fontSize: '27px', fontFamily: headingFont(theme) }}>{text(p.title)}</h2>}
-          {p.source === 'inventory' ? (
-            <EmptyNote label="Product lists come from the Inventory app. Until it is added, switch this block to typed products." />
+          {shown.length === 0 ? (
+            <EmptyNote
+              label={
+                fromInventory
+                  ? 'Nothing on the Inventory list is for sale yet. Add an active product there, or switch this block to typed products.'
+                  : 'Add a product on the right, or point this block at the Inventory app.'
+              }
+            />
           ) : (
             <Grid columns={p.columns} gap="18px">
-              {products.map((product, index) => (
-                <article key={index} style={{ border: `1px solid ${theme.colors?.border ?? '#E5E7EB'}`, borderRadius: theme.radius ?? '10px', overflow: 'hidden', background: theme.colors?.surface ?? '#FFFFFF' }}>
-                  {imageSrc(product.image) && <Figure src={imageSrc(product.image)} alt={text(product.name)} ratio="4/3" radius="0px" />}
+              {shown.map((product) => (
+                <article
+                  key={product.id}
+                  style={{ border: `1px solid ${theme.colors?.border ?? '#E5E7EB'}`, borderRadius: theme.radius ?? '10px', overflow: 'hidden', background: theme.colors?.surface ?? '#FFFFFF' }}
+                >
+                  {imageSrc(product.image) && <Figure src={imageSrc(product.image)} alt={product.name} ratio="4/3" radius="0px" />}
                   <div style={{ padding: '16px' }}>
-                    <p style={{ margin: 0, fontWeight: 600 }}>{text(product.name)}</p>
-                    {text(product.body) && <p style={{ margin: '6px 0 0', fontSize: '13.5px', color: theme.colors?.muted ?? '#6B7280' }}>{text(product.body)}</p>}
-                    <p style={{ margin: '10px 0 0', fontWeight: 700, color: theme.colors?.primary ?? '#2E6BE6' }}>{text(product.price)}</p>
+                    <p style={{ margin: 0, fontWeight: 600 }}>{product.name}</p>
+                    {product.body && <p style={{ margin: '6px 0 0', fontSize: '13.5px', color: theme.colors?.muted ?? '#6B7280' }}>{product.body}</p>}
+                    <p style={{ margin: '10px 0 0', fontWeight: 700, color: theme.colors?.primary ?? '#2E6BE6' }}>{product.price}</p>
                   </div>
                 </article>
               ))}

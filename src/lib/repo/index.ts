@@ -17,6 +17,17 @@ import type {
   EmailSettingsRow,
   FormPrivateRow,
   FormRow,
+  InvCounts,
+  InvItem,
+  InvItemKind,
+  InvItemStatus,
+  InvMovement,
+  InvMovementReason,
+  InvPurchase,
+  InvPurchaseLine,
+  InvPurchaseStatus,
+  InvStockLevel,
+  InvSupplier,
   OrgMember,
   Site,
   SitePage,
@@ -745,6 +756,284 @@ export async function listCrmTasks(orgId: string, options: { includeDone?: boole
   const tasks = rows<CrmActivity>(data);
   if (tasks.length === 0) return [];
   return attachOwners(tasks);
+}
+
+// --- inventory ----------------------------------------------------------------
+
+/**
+ * Reads for the stockroom.
+ *
+ * A quantity is never a column, so it is never recomputed here either: every number
+ * a screen prints comes from `inv_stock_map`, which is the same grouped sum the hub's
+ * totals are built from. A list that added up its own ledger would be a second
+ * opinion about somebody's shelf.
+ */
+async function stockLevels(orgId: string): Promise<Map<string, InvStockLevel>> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('inv_stock_map', { p_org_id: orgId });
+  if (error) throw new Error(error.message);
+
+  return new Map(
+    rows<{ item_id: string; on_hand: number; movements: number; last_movement_at: string | null }>(data).map((level) => [
+      level.item_id,
+      { on_hand: Number(level.on_hand), movements: Number(level.movements), last_movement_at: level.last_movement_at },
+    ]),
+  );
+}
+
+const NO_STOCK: InvStockLevel = { on_hand: 0, movements: 0, last_movement_at: null };
+
+/** The thirteen numbers the hub, the item list header and the dashboard all quote. */
+export async function invCounts(orgId: string): Promise<InvCounts> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('inv_counts', { p_org_id: orgId });
+  if (error) throw new Error(error.message);
+  return (data ?? {}) as InvCounts;
+}
+
+export type InvItemRow = InvItem & { stock: InvStockLevel };
+
+export interface InvItemListOptions {
+  search?: string;
+  kind?: InvItemKind;
+  status?: InvItemStatus;
+  /** "Needs ordering" and "nothing left" are questions about a sum, so they filter after the read. */
+  lowOnly?: boolean;
+  outOnly?: boolean;
+  limit?: number;
+}
+
+export async function listInvItems(orgId: string, options: InvItemListOptions = {}): Promise<InvItemRow[]> {
+  const supabase = await createClient();
+  let query = supabase.from('inv_items').select('*').eq('org_id', orgId);
+  if (options.kind) query = query.eq('kind', options.kind);
+  if (options.status) query = query.eq('status', options.status);
+  const term = searchFilter(options.search);
+  if (term) query = query.or(`name.ilike."%${term}%",sku.ilike."%${term}%"`);
+
+  const [itemsResult, levels] = await Promise.all([
+    query.order('lower(name)').order('created_at', { ascending: false }).limit(options.limit ?? 500),
+    stockLevels(orgId),
+  ]);
+  if (itemsResult.error) throw new Error(itemsResult.error.message);
+
+  const items = rows<InvItem>(itemsResult.data).map((item) => ({ ...item, stock: levels.get(item.id) ?? NO_STOCK }));
+  if (options.outOnly) return items.filter((item) => item.track_stock && item.stock.on_hand <= 0);
+  if (options.lowOnly) {
+    return items.filter(
+      (item) => item.track_stock && item.reorder_point !== null && item.stock.on_hand <= item.reorder_point,
+    );
+  }
+  return items;
+}
+
+export async function getInvItem(itemId: string): Promise<InvItemRow | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from('inv_items').select('*').eq('id', itemId).maybeSingle();
+  if (error) throw new Error(error.message);
+
+  const item = row<InvItem>(data);
+  if (!item) return null;
+  return { ...item, stock: (await stockLevels(item.org_id)).get(item.id) ?? NO_STOCK };
+}
+
+/** Whether one item's shelf is at, or under, the level somebody decided was too low. */
+export function isLowStock(item: InvItemRow): boolean {
+  return item.track_stock && item.reorder_point !== null && item.stock.on_hand <= item.reorder_point;
+}
+
+export async function listInvMovements(
+  orgId: string,
+  options: { itemId?: string; reason?: InvMovementReason; limit?: number } = {},
+): Promise<InvMovement[]> {
+  const supabase = await createClient();
+  let query = supabase.from('inv_movements').select('*').eq('org_id', orgId);
+  if (options.itemId) query = query.eq('item_id', options.itemId);
+  if (options.reason) query = query.eq('reason', options.reason);
+
+  const { data, error } = await query.order('created_at', { ascending: false }).limit(options.limit ?? 80);
+  if (error) throw new Error(error.message);
+
+  const movements = rows<InvMovement>(data);
+  if (movements.length === 0) return movements;
+
+  const itemIds = [...new Set(movements.map((movement) => movement.item_id))];
+  const userIds = [...new Set(movements.map((movement) => movement.created_by).filter((id): id is string => !!id))];
+  const [itemsResult, profilesResult] = await Promise.all([
+    supabase.from('inv_items').select('id, name, unit, sku').in('id', itemIds),
+    userIds.length
+      ? supabase.from('user_profiles').select('user_id, display_name, email, avatar_url').in('user_id', userIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+  if (itemsResult.error) throw new Error(itemsResult.error.message);
+
+  const itemMap = new Map(rows<Pick<InvItem, 'id' | 'name' | 'unit' | 'sku'>>(itemsResult.data).map((item) => [item.id, item]));
+  const userMap = new Map(rows<UserProfile>(profilesResult.data).map((p) => [p.user_id, p]));
+
+  return movements.map((movement) => ({
+    ...movement,
+    item: itemMap.get(movement.item_id) ?? null,
+    author: movement.created_by ? userMap.get(movement.created_by) ?? null : null,
+  }));
+}
+
+export interface InvSupplierRow extends InvSupplier {
+  orders: number;
+  open_orders: number;
+  last_ordered_at: string | null;
+}
+
+export async function listInvSuppliers(
+  orgId: string,
+  options: { search?: string; status?: InvItemStatus; limit?: number } = {},
+): Promise<InvSupplierRow[]> {
+  const supabase = await createClient();
+  let query = supabase.from('inv_suppliers').select('*').eq('org_id', orgId);
+  if (options.status) query = query.eq('status', options.status);
+  const term = searchFilter(options.search);
+  if (term) query = query.or(`name.ilike."%${term}%",contact.ilike."%${term}%",email.ilike."%${term}%"`);
+
+  const [suppliersResult, ordersResult] = await Promise.all([
+    query.order('lower(name)').limit(options.limit ?? 300),
+    supabase.from('inv_purchases').select('supplier_id, status, created_at').eq('org_id', orgId),
+  ]);
+  if (suppliersResult.error) throw new Error(suppliersResult.error.message);
+  if (ordersResult.error) throw new Error(ordersResult.error.message);
+
+  const tally = new Map<string, { orders: number; open: number; last: string | null }>();
+  for (const order of rows<{ supplier_id: string; status: InvPurchaseStatus; created_at: string }>(ordersResult.data)) {
+    const entry = tally.get(order.supplier_id) ?? { orders: 0, open: 0, last: null };
+    entry.orders += 1;
+    if (order.status === 'draft' || order.status === 'ordered' || order.status === 'partially_received') entry.open += 1;
+    if (!entry.last || order.created_at > entry.last) entry.last = order.created_at;
+    tally.set(order.supplier_id, entry);
+  }
+
+  return rows<InvSupplier>(suppliersResult.data).map((supplier) => ({
+    ...supplier,
+    orders: tally.get(supplier.id)?.orders ?? 0,
+    open_orders: tally.get(supplier.id)?.open ?? 0,
+    last_ordered_at: tally.get(supplier.id)?.last ?? null,
+  }));
+}
+
+export async function getInvSupplier(supplierId: string): Promise<InvSupplier | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from('inv_suppliers').select('*').eq('id', supplierId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return row<InvSupplier>(data);
+}
+
+export async function listInvPurchases(
+  orgId: string,
+  options: { status?: InvPurchaseStatus; statuses?: InvPurchaseStatus[]; supplierId?: string; search?: string; limit?: number } = {},
+): Promise<InvPurchase[]> {
+  const supabase = await createClient();
+  let query = supabase.from('inv_purchases').select('*').eq('org_id', orgId);
+  if (options.status) query = query.eq('status', options.status);
+  else if (options.statuses?.length) query = query.in('status', options.statuses);
+  if (options.supplierId) query = query.eq('supplier_id', options.supplierId);
+  const term = searchFilter(options.search);
+  if (term) query = query.or(`number.ilike."%${term}%",notes.ilike."%${term}%"`);
+
+  const { data, error } = await query
+    .order('order_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(options.limit ?? 200);
+  if (error) throw new Error(error.message);
+
+  const purchases = rows<InvPurchase>(data);
+  if (purchases.length === 0) return purchases;
+
+  const supplierIds = [...new Set(purchases.map((purchase) => purchase.supplier_id))];
+  const [linesResult, suppliersResult] = await Promise.all([
+    supabase
+      .from('inv_purchase_lines')
+      .select('purchase_id, qty, received_qty, total')
+      .in('purchase_id', purchases.map((purchase) => purchase.id)),
+    supabase.from('inv_suppliers').select('id, name, contact, email, phone').in('id', supplierIds),
+  ]);
+  if (linesResult.error) throw new Error(linesResult.error.message);
+  if (suppliersResult.error) throw new Error(suppliersResult.error.message);
+
+  const totals = new Map<string, { count: number; total: number; received: number; outstanding: number }>();
+  for (const line of rows<{ purchase_id: string; qty: number; received_qty: number; total: number }>(linesResult.data)) {
+    const entry = totals.get(line.purchase_id) ?? { count: 0, total: 0, received: 0, outstanding: 0 };
+    entry.count += 1;
+    entry.total += Number(line.total);
+    entry.received += Number(line.received_qty);
+    entry.outstanding += Number(line.qty) - Number(line.received_qty);
+    totals.set(line.purchase_id, entry);
+  }
+
+  const supplierMap = new Map(
+    rows<Pick<InvSupplier, 'id' | 'name' | 'contact' | 'email' | 'phone'>>(suppliersResult.data).map((s) => [s.id, s]),
+  );
+
+  return purchases.map((purchase) => {
+    const entry = totals.get(purchase.id);
+    return {
+      ...purchase,
+      supplier: supplierMap.get(purchase.supplier_id) ?? null,
+      line_count: entry?.count ?? 0,
+      total: entry?.total ?? 0,
+      received_qty: entry?.received ?? 0,
+      outstanding_qty: entry?.outstanding ?? 0,
+    };
+  });
+}
+
+export interface InvPurchaseDetail {
+  purchase: InvPurchase;
+  lines: InvPurchaseLine[];
+}
+
+/**
+ * One order and every line on it.
+ *
+ * The line carries the item's name as typed on the day the order was written, and the
+ * join here adds what the item is called now — the two are deliberately different
+ * things, and a document that rewrote its own lines when somebody renamed a product
+ * would stop being evidence of what was ordered.
+ */
+export async function getInvPurchase(purchaseId: string): Promise<InvPurchaseDetail | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from('inv_purchases').select('*').eq('id', purchaseId).maybeSingle();
+  if (error) throw new Error(error.message);
+
+  const purchase = row<InvPurchase>(data);
+  if (!purchase) return null;
+
+  const [linesResult, supplier] = await Promise.all([
+    supabase.from('inv_purchase_lines').select('*').eq('purchase_id', purchaseId).order('created_at', { ascending: true }),
+    getInvSupplier(purchase.supplier_id),
+  ]);
+  if (linesResult.error) throw new Error(linesResult.error.message);
+
+  const lines = rows<InvPurchaseLine>(linesResult.data);
+  const itemIds = [...new Set(lines.map((line) => line.item_id))];
+  const itemsResult = itemIds.length
+    ? await supabase.from('inv_items').select('id, name, unit, sku, track_stock').in('id', itemIds)
+    : { data: [], error: null };
+  if (itemsResult.error) throw new Error(itemsResult.error.message);
+
+  const itemMap = new Map(
+    rows<Pick<InvItem, 'id' | 'name' | 'unit' | 'sku' | 'track_stock'>>(itemsResult.data).map((item) => [item.id, item]),
+  );
+
+  return {
+    purchase: {
+      ...purchase,
+      supplier: supplier
+        ? { name: supplier.name, contact: supplier.contact, email: supplier.email, phone: supplier.phone }
+        : null,
+      line_count: lines.length,
+      total: lines.reduce((sum, line) => sum + Number(line.total), 0),
+      received_qty: lines.reduce((sum, line) => sum + Number(line.received_qty), 0),
+      outstanding_qty: lines.reduce((sum, line) => sum + (Number(line.qty) - Number(line.received_qty)), 0),
+    },
+    lines: lines.map((line) => ({ ...line, item: itemMap.get(line.item_id) ?? null })),
+  };
 }
 
 // --- email ------------------------------------------------------------------

@@ -90,8 +90,8 @@ export const MODULES: ModuleDef[] = [
     label: 'Inventory',
     href: '/app/inventory',
     icon: Package,
-    tagline: 'Stock, pricing, offers and suppliers in one list.',
-    state: 'planned',
+    tagline: 'Stock, pricing and suppliers in one list.',
+    state: 'live',
     appKey: 'inventory',
   },
   {

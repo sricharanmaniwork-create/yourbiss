@@ -645,7 +645,7 @@ export const BLOCK_DEFS: BlockDefinition[] = [
     label: 'Product list',
     group: 'Live data',
     icon: 'ShoppingBag',
-    description: 'Shows live products and prices once the Inventory app is added.',
+    description: 'Lists the active products on the Inventory app, with their prices.',
     allowedIn: EVERYWHERE,
     controls: [
       { kind: 'text', key: 'title', label: 'Section title', max: 200 },
