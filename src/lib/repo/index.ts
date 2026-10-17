@@ -625,7 +625,10 @@ export async function listCrmContacts(
   const term = searchFilter(options.search);
   if (term) query = query.or(`name.ilike."%${term}%",email.ilike."%${term}%",company.ilike."%${term}%"`);
 
-  const { data, error } = await query.order('lower(name)').order('created_at', { ascending: false }).limit(options.limit ?? 300);
+  // A plain column, not an expression: the REST layer only orders by columns, so
+  // `lower(name)` fails the whole read rather than falling back to a database sort.
+  // The text collation is already case-insensitive, so this is the A-Z list it looks like.
+  const { data, error } = await query.order('name').order('created_at', { ascending: false }).limit(options.limit ?? 300);
   if (error) throw new Error(error.message);
   return attachOwners(rows<CrmContact>(data));
 }
@@ -820,7 +823,7 @@ export async function listInvItems(orgId: string, options: InvItemListOptions = 
   if (term) query = query.or(`name.ilike."%${term}%",sku.ilike."%${term}%"`);
 
   const [itemsResult, levels] = await Promise.all([
-    query.order('lower(name)').order('created_at', { ascending: false }).limit(options.limit ?? 500),
+    query.order('name').order('created_at', { ascending: false }).limit(options.limit ?? 500),
     stockLevels(orgId),
   ]);
   if (itemsResult.error) throw new Error(itemsResult.error.message);
@@ -902,7 +905,7 @@ export async function listInvSuppliers(
   if (term) query = query.or(`name.ilike."%${term}%",contact.ilike."%${term}%",email.ilike."%${term}%"`);
 
   const [suppliersResult, ordersResult] = await Promise.all([
-    query.order('lower(name)').limit(options.limit ?? 300),
+    query.order('name').limit(options.limit ?? 300),
     supabase.from('inv_purchases').select('supplier_id, status, created_at').eq('org_id', orgId),
   ]);
   if (suppliersResult.error) throw new Error(suppliersResult.error.message);

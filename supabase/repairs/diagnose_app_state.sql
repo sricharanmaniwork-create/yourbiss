@@ -77,21 +77,26 @@ order by 1;
 -- leak into the rest of the session. If `inv_counts` or `inv_stock_map` raises, the
 -- editor prints the database's own words — which is the message the screen never
 -- shows.
-begin;
-
-select set_config(
-  'request.jwt.claims',
-  jsonb_build_object('sub', '<PASTE USER UUID>', 'role', 'authenticated', 'aud', 'authenticated')::text,
-  true
-);
-
--- Optional, and only if the project lets `postgres` become the API role. It changes
--- nothing about the two calls below, because both are SECURITY DEFINER and re-check
--- membership from the claims above rather than from the role.
--- set local role authenticated;
-
-select public.inv_counts('<PASTE ORG UUID>'::uuid);
-
-select * from public.inv_stock_map('<PASTE ORG UUID>'::uuid);
-
-rollback;
+--
+-- These four statements are left commented out on purpose: pasted as they stand they
+-- would fail on the placeholders, so the three reports above can be run in one go by
+-- anybody. Paste your own uuids in, uncomment, and run them as a query of their own.
+--
+-- begin;
+--
+-- select set_config(
+--   'request.jwt.claims',
+--   jsonb_build_object('sub', '<PASTE USER UUID>', 'role', 'authenticated', 'aud', 'authenticated')::text,
+--   true
+-- );
+--
+-- -- Optional, and only if the project lets `postgres` become the API role. It changes
+-- -- nothing about the two calls below, because both are SECURITY DEFINER and re-check
+-- -- membership from the claims above rather than from the role.
+-- -- set local role authenticated;
+--
+-- select public.inv_counts('<PASTE ORG UUID>'::uuid);
+--
+-- select * from public.inv_stock_map('<PASTE ORG UUID>'::uuid);
+--
+-- rollback;

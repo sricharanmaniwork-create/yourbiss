@@ -40,20 +40,16 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 ## Database
 
-`supabase/migrations/` applies in numeric order. 0001–0011 are applied to the project;
-**0012 is still to be run by hand**:
+`supabase/migrations/` applies in numeric order. **0001–0012 are all applied to the project**,
+and the next file to write is `0013_*`.
 
-- `0012_store.sql` — the two columns the storefront needs on Inventory's item list
-  (`tax_rate_pct`, `sell_online`), the workspace's shipping and checkout note, and orders
-  with their lines.
-
-Apply them in Supabase Studio → SQL editor, or `supabase db push` against the project.
+Apply new files in Supabase Studio → SQL editor, or `supabase db push` against the project.
 **When pasting into the SQL editor, wrap the file in a transaction** — `begin;` above the
 first statement, `commit;` below the last. The editor otherwise runs a script one statement
 at a time and leaves whatever it got through behind when one fails, and `supabase db push`
 wraps each file only because it does the wrapping itself.
 
-Three rules this repository works under:
+Four rules this repository works under:
 
 * An applied migration is immutable. A change in behaviour is a new file, never an edit.
 * Every new table needs its own `GRANT` and its own policies — Postgres grants nothing to
@@ -61,6 +57,12 @@ Three rules this repository works under:
 * A migration that failed halfway is repaired before it is re-run, not edited around the
   objects it left behind. `supabase/repairs/` holds those repairs, and
   `supabase/repairs/diagnose_app_state.sql` says which state the database is actually in.
+* A read names a **column**, never an SQL expression. `.order('lower(name)')` reads like the
+  expression index beside it, but the REST layer only accepts a column — optionally qualified,
+  optionally with `.desc`/`.nullsfirst` — and it fails the entire request rather than sorting
+  some other way. A failed read inside a Server Component is what a screen shows as
+  "Minified React error #441", so the case-insensitive sort goes in the collation, which
+  already ignores case.
 
 ## Mail
 
@@ -134,7 +136,17 @@ On a small machine, give the tooling a heap ceiling and the build fewer workers:
 NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit
 ```
 
-`scratch/` holds the checks that are not unit-testable from a browser:
-`node scratch/blocks_smoke.cjs` walks every builder block, `node scratch/sql_reference_check.cjs`
-asserts that each SQL function and table this repository mentions actually exists in the
-migrations.
+`scratch/` holds the checks that are not unit-testable from a browser, and they are the
+substitute for a database this machine cannot run:
+
+* `node scratch/blocks_smoke.cjs` — every builder block renders and round-trips.
+* `node scratch/sql_reference_check.cjs` — each SQL function and table the repository mentions
+  exists in the migrations, dollar quotes balance, and no comment line has swallowed a column
+  definition (the mistake that broke 0012).
+* `node scratch/column_check.cjs` — every `<table>.<column>` written in the SQL is a declared
+  column.
+* `node scratch/postgrest_columns_check.cjs` — every column, table and RPC name the **app**
+  hands to the REST layer exists in the migrations, and every `.order()`/`.eq()`/`.filter()`
+  argument is a plain column rather than an expression. Pass a migration prefix to check the
+  app against the database as it stands partway through: `node scratch/postgrest_columns_check.cjs 0011`.
+* `node scratch/audit_grants.mjs` — no table is left without a grant or without RLS.

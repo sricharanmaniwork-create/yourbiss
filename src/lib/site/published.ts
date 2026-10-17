@@ -21,6 +21,17 @@ import { formatAmount } from '@/lib/utils';
  * flicked a switch in settings.
  */
 
+/**
+ * A published page degrades to an empty list rather than a stack trace, because a
+ * visitor cannot fix anything. That is only a good answer if the failure is written
+ * down somewhere the person who can fix it will read it, so each degraded read is
+ * logged with the database's own words — the same line Vercel → Logs → Runtime shows
+ * for a thrown one, instead of a shop that looks like it has no products.
+ */
+function degraded(what: string, error: { message: string } | null): void {
+  if (error) console.error('[yourbiss] published page read failed', { read: what, message: error.message });
+}
+
 export interface PublicSite {
   id: string;
   orgId: string;
@@ -173,7 +184,7 @@ export async function embedEntities(orgId: string): Promise<EmbedEntities> {
       .eq('org_id', orgId)
       .eq('kind', 'product')
       .eq('status', 'active')
-      .order('lower(name)')
+      .order('name')
       .limit(120),
   ]);
 
@@ -190,10 +201,12 @@ export async function embedEntities(orgId: string): Promise<EmbedEntities> {
   if (services.error) throw new Error(services.error.message);
   if (staff.error) throw new Error(staff.error.message);
 
+  degraded('orgs', org.error);
   const workspace = (org.error ? null : org.data) as unknown as { currency: string | null; locale: string | null } | null;
   const currency = workspace?.currency ?? 'INR';
   const locale = workspace?.locale ?? 'en-IN';
 
+  degraded('org_apps', switches.error);
   const enabled = new Set(
     switches.error
       ? []
@@ -202,6 +215,7 @@ export async function embedEntities(orgId: string): Promise<EmbedEntities> {
           .map((row) => row.app_key),
   );
 
+  degraded('inv_items', items.error);
   const rows: InvProductRow[] = items.error ? [] : ((items.data ?? []) as unknown as InvProductRow[]);
   const label = (price: number) => formatAmount(Number(price), currency, locale);
 
@@ -274,13 +288,15 @@ async function storefrontOf(
       .eq('kind', 'product')
       .eq('status', 'active')
       .eq('sell_online', true)
-      .order('lower(name)')
+      .order('name')
       .limit(200),
   ]);
 
+  degraded('store_settings', settings.error);
   const row = (settings.error ? null : settings.data) as { shipping_flat: string | number; checkout_note: string | null } | null;
   const fee = Number(row?.shipping_flat ?? 0);
 
+  degraded('inv_items for the storefront', onSale.error);
   const items: StoreCartItem[] = ((onSale.error ? [] : onSale.data ?? []) as unknown as InvStoreRow[])
     .map((item) => ({
       id: item.id,
