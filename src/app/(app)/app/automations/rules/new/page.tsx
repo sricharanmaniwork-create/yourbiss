@@ -11,9 +11,9 @@ export const metadata: Metadata = { title: 'New rule' };
  * A new rule, offered only for events the suite really writes.
  *
  * There is no "custom event", no webhook and no schedule of its own: a rule watches
- * something Forms, Bookings, CRM, Inventory, Store or Websites already records in its
- * timeline. That limit is what makes the list above the form trustworthy — it is read
- * from `public.automation_events`, the same table the saved rule is checked against.
+ * something Forms, Bookings, CRM, Inventory, Store, Websites or Projects already records
+ * in its timeline. That limit is what makes the list above the form trustworthy — it is
+ * read from `public.automation_events`, the same table the saved rule is checked against.
  */
 export default async function NewAutomationRulePage() {
   const workspace = await requireWorkspace();

@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Trash2 } from 'lucide-react';
 import { createAutomationRule, updateAutomationRule } from '@/lib/actions/automations';
+import { sendsToRecord, writesToCrm } from '@/lib/automations/capabilities';
+import { appLabel } from '@/lib/modules';
 import { Button, Field, FormStatus, Input, Select, Switch, Textarea, useAction } from '@/components/ui';
 import type { AutomationConditionOp, AutomationEvent, AutomationField, AutomationRule } from '@/lib/types';
 
@@ -17,16 +19,13 @@ import type { AutomationConditionOp, AutomationEvent, AutomationField, Automatio
  * the same rows the rule's foreign key is checked against when it saves, so a rule that
  * builds is a rule the suite can actually fire. Nothing in this file invents an event
  * the other apps never write, and nothing offers a field the record does not have.
+ *
+ * The two actions are greyed out when the chosen event's own row cannot carry them: a
+ * board card and a purchase order have no email address, so a letter cannot go to the
+ * record and there is no CRM contact to write against. The same question is asked again
+ * in `shape()` before the insert, and the runner would have failed the rule on every
+ * event anyway — saying it here is what saves a visit to the run log.
  */
-
-const APP_LABEL: Record<string, string> = {
-  bookings: 'Bookings',
-  crm: 'CRM',
-  forms: 'Forms',
-  inventory: 'Inventory',
-  store: 'Store',
-  website: 'Websites',
-};
 
 const OPS: AutomationConditionOp[] = ['equals', 'not_equals', 'contains', 'greater', 'less', 'is_empty', 'is_not_empty'];
 
@@ -134,6 +133,28 @@ export function RuleForm({ orgId, events, rule }: { orgId: string; events: Autom
   const fields = event?.fields ?? [];
   const fieldOf = (name: string): AutomationField | undefined => fields.find((f) => f.name === name);
 
+  const entityType = event?.entity_type ?? '';
+  const canCrm = writesToCrm(entityType);
+  const canRecord = sendsToRecord(entityType);
+
+  /**
+   * Re-point the rule at another event, and carry its actions over only as far as the new
+   * record can carry them — a letter that was going to the buyer has nowhere to go on a
+   * board card, and leaving it selected would only fail the save below.
+   */
+  const chooseEvent = (key: string) => {
+    setEventKey(key);
+    const next = events.find((e) => `${e.app}|${e.entity_type}|${e.action}` === key);
+    if (!next) return;
+    setActions((rows) =>
+      rows.map((row) => {
+        if (row.type === 'crm_activity' && !writesToCrm(next.entity_type)) return { ...row, type: 'letter' as const, to: 'owner' as const, due_days: '' };
+        if (row.type === 'letter' && row.to === 'record' && !sendsToRecord(next.entity_type)) return { ...row, to: 'owner' as const };
+        return row;
+      }),
+    );
+  };
+
   const submit = () => {
     void run(async () => {
       const payload = { name, event: eventKey, conditions, actions: actions.map(actionOf), enabled };
@@ -179,7 +200,7 @@ export function RuleForm({ orgId, events, rule }: { orgId: string; events: Autom
         </p>
         <div className="mt-4 max-w-[560px]">
           <Field label="Event" htmlFor="rule-event" required error={fieldError('event')}>
-            <Select id="rule-event" value={eventKey} onChange={(e) => setEventKey(e.target.value)}>
+            <Select id="rule-event" value={eventKey} onChange={(e) => chooseEvent(e.target.value)}>
               {Object.entries(
                 events.reduce<Record<string, AutomationEvent[]>>((groups, item) => {
                   const list = groups[item.app];
@@ -188,7 +209,7 @@ export function RuleForm({ orgId, events, rule }: { orgId: string; events: Autom
                   return groups;
                 }, {}),
               ).map(([app, list]) => (
-                <optgroup key={app} label={APP_LABEL[app] ?? app}>
+                <optgroup key={app} label={appLabel(app)}>
                   {list.map((item) => (
                     <option key={`${item.app}|${item.entity_type}|${item.action}`} value={`${item.app}|${item.entity_type}|${item.action}`}>
                       {item.label}
@@ -301,6 +322,14 @@ export function RuleForm({ orgId, events, rule }: { orgId: string; events: Autom
           </Button>
         </div>
 
+        {event && !canRecord && (
+          <p className="mt-3 rounded-md border border-line bg-raised px-3 py-2 text-[12.5px] leading-relaxed text-muted">
+            A {entityType.replace(/_/g, ' ')} row has no email address of its own, so this event can only send a letter to
+            the workspace owner or to one fixed address you write into the rule — and it cannot write anything in CRM,
+            because there is no contact there for the runner to put it against.
+          </p>
+        )}
+
         {actions.length > 0 && fields.length > 0 && (
           <p className="mt-3 text-[12px] text-muted">
             Tokens for this event:{' '}
@@ -318,7 +347,7 @@ export function RuleForm({ orgId, events, rule }: { orgId: string; events: Autom
           {actions.map((row, index) => (
             <li key={index} className="rounded-md border border-line bg-raised p-3">
               <div className="flex flex-wrap items-end gap-2">
-                <Field label="Do" htmlFor={`action-type-${index}`} className="min-w-[220px] flex-1">
+                <Field label="Do" htmlFor={`action-type-${index}`} className="min-w-[220px] flex-1" error={fieldError(`actions.${index}.type`)}>
                   <Select
                     id={`action-type-${index}`}
                     value={row.type}
@@ -328,7 +357,7 @@ export function RuleForm({ orgId, events, rule }: { orgId: string; events: Autom
                     }}
                   >
                     <option value="letter">Send a letter</option>
-                    <option value="crm_activity">Write something in CRM</option>
+                    <option value="crm_activity" disabled={!canCrm}>Write something in CRM</option>
                   </Select>
                 </Field>
 
@@ -347,9 +376,9 @@ export function RuleForm({ orgId, events, rule }: { orgId: string; events: Autom
                 )}
 
                 {row.type === 'letter' && (
-                  <Field label="To" htmlFor={`action-to-${index}`} className="w-[190px]">
+                  <Field label="To" htmlFor={`action-to-${index}`} className="w-[190px]" error={fieldError(`actions.${index}.to`)}>
                     <Select id={`action-to-${index}`} value={row.to} onChange={(e) => setAction(index, { to: e.target.value as ActionRow['to'], address: '' })}>
-                      <option value="record">The email on the record</option>
+                      <option value="record" disabled={!canRecord}>The email on the record</option>
                       <option value="owner">The workspace owner</option>
                       <option value="address">One fixed address</option>
                     </Select>

@@ -155,6 +155,12 @@ activity, or send a letter through the same `sendMail()` door the rest of the pr
   (`youbiss.automation_rule_guard()`) as well as in `src/lib/actions/automations.ts`, so a rule
   that reaches the runner is a rule the runner can carry out. A letter goes to the record's own
   email, the workspace owner, or one fixed address written into the rule — never "every member".
+* **An action has to be one the record can carry.** `src/lib/automations/capabilities.ts` says
+  which column holds each record's email address, and the builder greys out — and the save
+  refuses — "the email on the record" and "write something in CRM" for the events whose row has
+  no address at all: a purchase order, a published site, a board and a card on it. A CRM activity
+  needs a contact to write against, and the runner only ever finds one by matching an email, so
+  a rule that promised either would have saved and then failed on every single event.
 
 Both doors take the same bearer token:
 

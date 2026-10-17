@@ -4,6 +4,7 @@ import { Activity, AlertTriangle, CheckCircle2, ListChecks, Power, Workflow, Zap
 import { requireWorkspace } from '@/lib/workspace';
 import { automationEvents, automationsCounts, listAutomationRules, listAutomationRuns } from '@/lib/repo';
 import { describeRule, eventLabel } from '@/lib/automations/describe';
+import { appLabel } from '@/lib/modules';
 import { RunNow } from '@/components/automations/run-now';
 import {
   Badge,
@@ -194,7 +195,7 @@ export default async function AutomationsHomePage() {
                 <li key={`${event.app}|${event.entity_type}|${event.action}`} className="px-4 py-3">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span className="text-[13px] font-medium text-ink">{event.label}</span>
-                    <Badge tone="neutral">{event.app}</Badge>
+                    <Badge tone="neutral">{appLabel(event.app)}</Badge>
                   </div>
                   <p className="mt-1 text-[12px] leading-relaxed text-muted">
                     {event.fields.map((field) => field.label).join(' · ')}

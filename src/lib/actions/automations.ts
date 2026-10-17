@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/server';
 import { assertAdmin, assertMembership } from '@/lib/supabase/admin';
 import { logActivity } from '@/lib/actions/activity';
 import { runWorkspaceAutomations } from '@/lib/automations/engine';
+import { sendsToRecord, writesToCrm } from '@/lib/automations/capabilities';
 import type {
   ActionState,
   AutomationAction,
@@ -25,8 +26,9 @@ import type {
  *
  * So the two validations say the same thing, and the database gets the last word:
  * a condition names a field that record really has, an operator is one of the seven
- * the runner implements, and an action is a CRM activity or a letter — never a third
- * thing the runner would silently skip.
+ * the runner implements, an action is a CRM activity or a letter — never a third thing
+ * the runner would silently skip — and the action is one that record can carry out,
+ * because a letter addressed to an email a row does not have only ever fails at run time.
  */
 
 const uuid = z.string().uuid();
@@ -144,8 +146,13 @@ function shape(input: z.infer<typeof ruleSchema>, events: AutomationEvent[]): Sh
   });
 
   const built: AutomationAction[] = [];
+  const record = event.entity_type.replace(/_/g, ' ');
   input.actions.forEach((item, index) => {
     if (item.type === 'crm_activity') {
+      if (!writesToCrm(event.entity_type)) {
+        fields[`actions.${index}.type`] = `A ${record} row is not somebody in CRM and has no email to match one with, so this event can only send a letter`;
+        return;
+      }
       if (item.kind !== 'task' && item.due_days !== null) {
         fields[`actions.${index}.due_days`] = 'Only a task can be due';
         return;
@@ -160,6 +167,10 @@ function shape(input: z.infer<typeof ruleSchema>, events: AutomationEvent[]): Sh
       return;
     }
 
+    if (item.to === 'record' && !sendsToRecord(event.entity_type)) {
+      fields[`actions.${index}.to`] = `A ${record} row has no email address of its own, so this letter has to go to the owner or one fixed address`;
+      return;
+    }
     if (item.to === 'address' && !EMAIL.test(item.address)) {
       fields[`actions.${index}.address`] = 'A letter to one fixed address needs a real address';
       return;

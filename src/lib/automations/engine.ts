@@ -2,6 +2,7 @@ import 'server-only';
 
 import { createAdminClient } from '@/lib/supabase/admin';
 import { sendMail } from '@/lib/mail';
+import { emailColumn } from '@/lib/automations/capabilities';
 import { automationLetter, mailBase } from '@/lib/mail/templates';
 import { formatAmount, formatDateInZone } from '@/lib/utils';
 import type {
@@ -51,15 +52,16 @@ const BATCH = 20;
  * Where the record behind an event lives, and which of its columns may be read.
  *
  * The list is deliberately narrower than the table: these are the columns the catalogue
- * in `automation_events` names, plus the two the actions need to find the right CRM row
- * and the right address. Anything else a rule might ask about is refused before this,
+ * in `automation_events` names, plus `contact_id` on an order, which checkout already
+ * decided. Which column holds a person's email address is not here — it is
+ * `emailColumn()` in `capabilities.ts`, because the builder has to ask the same question
+ * before it offers an action. Anything else a rule might ask about is refused before this,
  * by the foreign key and the shape guard 0013 installs.
  */
-const RECORDS: Record<string, { table: string; columns: string[]; email: string | null }> = {
+const RECORDS: Record<string, { table: string; columns: string[] }> = {
   form_submission: {
     table: 'form_submissions',
     columns: ['id', 'org_id', 'form_id', 'state', 'submitter_email', 'created_at'],
-    email: 'submitter_email',
   },
   booking: {
     table: 'bookings',
@@ -76,7 +78,6 @@ const RECORDS: Record<string, { table: string; columns: string[]; email: string 
       'starts_at',
       'timezone',
     ],
-    email: 'customer_email',
   },
   crm_lead: {
     table: 'crm_leads',
@@ -92,12 +93,10 @@ const RECORDS: Record<string, { table: string; columns: string[]; email: string 
       'converted_contact_id',
       'converted_deal_id',
     ],
-    email: 'email',
   },
   inv_purchase: {
     table: 'inv_purchases',
     columns: ['id', 'org_id', 'status', 'supplier_id', 'number', 'order_date', 'expected_date'],
-    email: null,
   },
   store_order: {
     table: 'store_orders',
@@ -115,17 +114,14 @@ const RECORDS: Record<string, { table: string; columns: string[]; email: string 
       'paid_at',
       'contact_id',
     ],
-    email: 'buyer_email',
   },
   site: {
     table: 'sites',
     columns: ['id', 'org_id', 'name', 'slug', 'status'],
-    email: null,
   },
   board_project: {
     table: 'board_projects',
     columns: ['id', 'org_id', 'name', 'summary', 'status'],
-    email: null,
   },
   board_task: {
     table: 'board_tasks',
@@ -141,7 +137,6 @@ const RECORDS: Record<string, { table: string; columns: string[]; email: string 
       'position',
       'completed_at',
     ],
-    email: null,
   },
 };
 
@@ -262,8 +257,8 @@ async function crmTarget(
   const attached = text(record['contact_id']);
   if (attached) return { column: 'contact_id', id: attached };
 
-  const spec = RECORDS[rule.entity_type];
-  const email = spec?.email ? text(record[spec.email]) : '';
+  const column = emailColumn(rule.entity_type);
+  const email = column ? text(record[column]) : '';
   if (!email) {
     return { error: 'there is no CRM record for this event, because the record has no email to match on' };
   }
@@ -361,8 +356,7 @@ async function carryOut(
         continue;
       }
 
-      const spec = RECORDS[rule.entity_type];
-      const who = await recipient(admin, org.id, action, record, spec?.email ?? null);
+      const who = await recipient(admin, org.id, action, record, emailColumn(rule.entity_type));
       if ('error' in who) {
         failures.push(who.error);
         continue;

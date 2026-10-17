@@ -157,3 +157,12 @@ export function navModules(): ModuleDef[] {
 export function isLive(key: string): boolean {
   return moduleByKey(key)?.state === 'live';
 }
+
+/**
+ * The word a person reads for an app key, taken from the rail rather than repeated
+ * here — Automations names apps by their key in the database, and a rule screen that
+ * spelled them out on its own drifted the first time an app was renamed.
+ */
+export function appLabel(app: string): string {
+  return MODULES.find((module) => module.appKey === app)?.label ?? app;
+}
