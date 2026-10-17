@@ -22,7 +22,7 @@ const APPS = [
   { name: 'Store', icon: ShoppingCart, body: 'Product pages and carts built from the same canvas, priced from your inventory.', live: true },
   { name: 'CRM', icon: Users, body: 'Every form response and booking becomes a contact with a real activity timeline.', live: true },
   { name: 'Inventory', icon: Package, body: 'Stock kept as a ledger nobody can rewrite, pricing, and the suppliers you buy from.', live: true },
-  { name: 'Automations', icon: Workflow, body: 'When something happens in one app, do something in another. Rules, not guesses.', live: false },
+  { name: 'Automations', icon: Workflow, body: 'When something happens in one app, do something in another. Rules, not guesses.', live: true },
 ];
 
 export default async function LandingPage() {
@@ -57,7 +57,7 @@ export default async function LandingPage() {
           <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr]">
             <div>
               <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-[#c7dbfb] bg-brand-soft px-3 py-1 text-[12px] font-medium text-brand-dark">
-                Websites · Bookings · Forms — live today
+                Seven apps, one workspace — all live today
               </p>
               <h1 className="text-[38px] font-semibold leading-[1.14] tracking-[-0.025em] text-ink sm:text-[46px]">
                 Run the whole business from one canvas.
