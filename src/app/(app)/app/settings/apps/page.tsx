@@ -20,7 +20,7 @@ export default async function AppsSettingsPage() {
       <Card>
         <CardHeader
           title="Apps in this workspace"
-          description="Switching an app off hides it from the sidebar and stops its public pages answering. Nothing is deleted."
+          description="Switching an app off hides it from the sidebar, stops its automations and its mail, and takes its own pages offline. Nothing is deleted."
         />
         <CardBody className="p-0">
           <AppToggles
@@ -37,8 +37,11 @@ export default async function AppsSettingsPage() {
       </Card>
 
       <p className="text-[12.5px] leading-relaxed text-muted">
-        A customer-facing page that belongs to a switched-off app returns a plain &ldquo;not available&rdquo; response
-        rather than an error, so a half-finished rollout never shows a stack trace to a visitor.
+        A page that lives at your own address — a published site, the storefront — answers a plain &ldquo;not
+        available&rdquo; once its app is off rather than an error, so a half-finished rollout never shows a visitor a
+        stack trace. A form or booking link you have already shared is the deliberate exception: it keeps working until
+        you unpublish the form or hide the service, because tidying the sidebar should not quietly break a link printed
+        on a flyer.
       </p>
     </div>
   );
