@@ -6,8 +6,12 @@ import { checkAnswers } from '@/lib/forms/answers';
 import { orderedFields } from '@/lib/forms/definition';
 import {
   collectsMany,
+  COMPOSITE_PART_MAX_CHARS,
+  compositeParts,
   fieldIsVisible,
+  isComposite,
   isPresentational,
+  partLabel,
   type FieldKind,
   type FieldOption,
   type FormFieldDef,
@@ -323,6 +327,24 @@ function FieldRow({
     );
   }
 
+  if (isComposite(field.type)) {
+    return (
+      <fieldset className={`yb-form-field yb-form-group${half}`} data-field={field.id}>
+        <legend className="yb-form-label">
+          {field.label}
+          {field.required && <span className="yb-form-req">*</span>}
+        </legend>
+        <PartsGrid field={field} value={value} error={!!error} setValue={setValue} describedBy={describedBy} />
+        {field.help && <p id={`${field.id}-help`} className="yb-form-help">{field.help}</p>}
+        {error && (
+          <p id={`${field.id}-error`} className="yb-form-error" role="alert">
+            {error}
+          </p>
+        )}
+      </fieldset>
+    );
+  }
+
   return (
     <div className={`yb-form-field${half}`} data-field={field.id}>
       {field.type !== 'checkbox_single' && (
@@ -459,6 +481,64 @@ function MatrixGrid({
   );
 }
 
+/** The tokens a browser keeps an address book under — a part typed once is filled for
+ * every form that asks for it. The two sets share no key, so one map covers both. */
+const AUTOFILL: Record<string, string> = {
+  prefix: 'honorific-prefix',
+  first: 'given-name',
+  middle: 'additional-name',
+  last: 'family-name',
+  suffix: 'honorific-suffix',
+  line1: 'street-address',
+  line2: 'address-line2',
+  city: 'address-level2',
+  state: 'address-level1',
+  zip: 'postal-code',
+  country: 'country-name',
+};
+
+/** A street line is written long; a name part never is. */
+const WIDE_PARTS = new Set(['line1', 'line2']);
+
+/** A name is one answer with parts in it, so the boxes carry the part they hold and the
+ * browser can fill the whole group from an address book. A required composite asks for
+ * every part it shows — which is exactly what the builder says it does. */
+function PartsGrid({
+  field,
+  value,
+  error,
+  setValue,
+  describedBy,
+}: {
+  field: FormFieldDef;
+  value: unknown;
+  error: boolean;
+  setValue: (id: string, value: unknown) => void;
+  describedBy: string;
+}) {
+  const filled = (value && typeof value === 'object' ? value : {}) as Record<string, string>;
+
+  return (
+    <div className="yb-form-parts" data-control={field.id} tabIndex={-1} aria-invalid={error || undefined}>
+      {compositeParts(field).map((part) => (
+        <label key={part} className={`yb-form-part${WIDE_PARTS.has(part) ? ' yb-form-part-wide' : ''}`}>
+          <span className="yb-form-part-label">{partLabel(field, part)}</span>
+          <input
+            id={`${field.id}-${part}`}
+            type="text"
+            autoComplete={AUTOFILL[part]}
+            maxLength={COMPOSITE_PART_MAX_CHARS}
+            aria-required={field.required || undefined}
+            aria-describedby={describedBy || undefined}
+            value={filled[part] ?? ''}
+            onChange={(event) => setValue(field.id, { ...filled, [part]: event.target.value })}
+          />
+        </label>
+      ))}
+    </div>
+  );
+}
+
 const RATING_GLYPH: Record<RatingSymbol, typeof Star | null> = {
   number: null,
   star: Star,
@@ -511,11 +591,10 @@ function Control({
 
   switch (field.type) {
     case 'textarea':
-    case 'address':
       return withAffix(
         <textarea
           {...shared}
-          rows={field.type === 'address' ? 3 : 4}
+          rows={4}
           value={text}
           minLength={v.min_len}
           maxLength={v.max_len ?? 8000}
@@ -688,20 +767,6 @@ function Control({
     case 'decision':
       return <DecisionControl field={field} value={value} setValue={setValue} />;
 
-    case 'name':
-      return withAffix(
-        <input
-          {...shared}
-          type="text"
-          autoComplete="name"
-          value={text}
-          minLength={v.min_len}
-          maxLength={v.max_len ?? 2000}
-          pattern={v.pattern}
-          onChange={(event) => setValue(field.id, event.target.value)}
-        />,
-      );
-
     default:
       return withAffix(
         <input
@@ -710,7 +775,7 @@ function Control({
           value={text}
           minLength={v.min_len}
           maxLength={v.max_len ?? 2000}
-          pattern={field.type === 'text' ? v.pattern : undefined}
+          pattern={v.pattern}
           onChange={(event) => setValue(field.id, event.target.value)}
         />,
       );

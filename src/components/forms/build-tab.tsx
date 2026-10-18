@@ -5,16 +5,23 @@ import { Copy, GripVertical, Trash } from 'lucide-react';
 import type { ActionState } from '@/lib/types';
 import type { FieldKind, FormFieldDef, LogicOperator, MatrixAxes, RatingSymbol } from '@/lib/forms/types';
 import {
+  ADDRESS_PARTS,
+  ADDRESS_PARTS_DEFAULT,
   FIELD_KIND_LABELS,
   MATRIX_MAX_COLUMNS,
   MATRIX_MAX_ROWS,
+  NAME_PARTS,
+  NAME_PARTS_DEFAULT,
   OPTION_BEARING,
   SINGLE_CHOICE,
   blankField,
   choiceLabel,
   choiceValues,
   collectsMany,
+  compositeParts,
+  isComposite,
   isPresentational,
+  partLabel,
 } from '@/lib/forms/types';
 import { saveFormDefinition } from '@/lib/actions/forms';
 import { Button, Field, FormStatus, Input, Select, Switch, Textarea, toast, useFieldId } from '@/components/ui';
@@ -368,8 +375,20 @@ function Mock({ field }: { field: FormFieldDef }) {
   const chip = 'inline-block h-3 w-3 border border-line bg-white';
   switch (field.type) {
     case 'textarea':
-    case 'address':
       return <div className="mt-1.5 h-16 rounded-md border border-line bg-white" />;
+
+    case 'name':
+    case 'address':
+      return (
+        <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+          {compositeParts(field).map((part) => (
+            <span key={part} className="grid gap-0.5 text-[11px] text-muted">
+              <span>{partLabel(field, part)}</span>
+              <span className="h-7 rounded-md border border-line bg-white" />
+            </span>
+          ))}
+        </div>
+      );
 
     case 'radio':
     case 'checkbox':
@@ -499,10 +518,11 @@ function FieldInspector({
   const ids = useFieldId('insp');
   const collecting = !isPresentational(field.type);
   const choiceBearing = OPTION_BEARING.includes(field.type);
-  const textish = ['text', 'name', 'textarea', 'address'].includes(field.type);
+  const composite = isComposite(field.type);
+  const textish = ['text', 'textarea'].includes(field.type);
   const numeric = ['number', 'rupees', 'currency'].includes(field.type);
   const affixable = textish || numeric;
-  const defaultable = collecting && DEFAULTABLE.includes(field.type);
+  const defaultable = collecting && !composite && DEFAULTABLE.includes(field.type);
   const v = field.validation ?? {};
   const labelWord = ['section', 'heading', 'note'].includes(field.type) ? 'Text' : 'Label';
 
@@ -548,7 +568,7 @@ function FieldInspector({
         </Field>
       )}
 
-      {collecting && (
+      {collecting && !composite && (
         <Field label="Placeholder" htmlFor={`${ids}-placeholder`} hint="Vanishes as soon as the visitor types.">
           <Input
             id={`${ids}-placeholder`}
@@ -736,6 +756,8 @@ function FieldInspector({
         </div>
       )}
 
+      {composite && <PartsEditor field={field} canManage={canManage} onChange={onChange} />}
+
       {affixable && (
         <div className="grid grid-cols-2 gap-2">
           <Field label="Prefix" htmlFor={`${ids}-prefix`} hint="Drawn before the box.">
@@ -788,7 +810,7 @@ function FieldInspector({
         </div>
       )}
 
-      {field.type === 'text' || field.type === 'name' ? (
+      {field.type === 'text' ? (
         <>
           <Field label="Must match" htmlFor={`${ids}-pattern`} hint="A regular expression, checked the same way in the browser and on the server.">
             <Input
@@ -969,6 +991,48 @@ function OptionsEditor({
 }
 
 /** A matrix is two lists, not one: the questions down the side and the answers across. */
+/** The boxes a name or an address is made of. What is switched on here is what the
+ * visitor is asked, what is stored, and — for a required field — what has to be
+ * filled, so this is the question itself rather than a layout choice. */
+function PartsEditor({
+  field,
+  canManage,
+  onChange,
+}: {
+  field: FormFieldDef;
+  canManage: boolean;
+  onChange: (changes: Partial<FormFieldDef>) => void;
+}) {
+  const name = field.type === 'name';
+  const parts = name ? NAME_PARTS : ADDRESS_PARTS;
+  const on = (name ? field.name_parts ?? NAME_PARTS_DEFAULT : field.address_parts ?? ADDRESS_PARTS_DEFAULT) as Record<string, boolean>;
+
+  const toggle = (part: string, value: boolean) =>
+    onChange(name ? { name_parts: { ...on, [part]: value } } : { address_parts: { ...on, [part]: value } });
+
+  return (
+    <div className="grid gap-1.5">
+      <p className="text-[12.5px] font-medium text-ink">Parts</p>
+      <div className="grid grid-cols-2 gap-1.5">
+        {parts.map((part) => (
+          <label key={part} className="flex items-center gap-2 text-[12.5px] text-ink-soft">
+            <input
+              type="checkbox"
+              checked={on[part] ?? false}
+              disabled={!canManage}
+              onChange={(event) => toggle(part, event.target.checked)}
+            />
+            {partLabel(field, part)}
+          </label>
+        ))}
+      </div>
+      <p className="text-[11.5px] leading-relaxed text-muted">
+        A required {name ? 'name' : 'address'} asks for every part left switched on.
+      </p>
+    </div>
+  );
+}
+
 function MatrixEditor({
   field,
   canManage,

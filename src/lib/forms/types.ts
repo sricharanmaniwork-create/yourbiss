@@ -66,6 +66,93 @@ export function isStructured(kind: FieldKind): boolean {
   return STRUCTURED.includes(kind);
 }
 
+/**
+ * Fields whose answer is one object of named parts — a name is a title and a surname, an
+ * address is a street and a PIN, and neither is a string somebody split with a comma.
+ *
+ * The parts a field shows are the parts it stores, and a required composite wants every
+ * one of them: switching on "Middle name" and leaving the field required is a decision
+ * the builder makes where the visitor can see it, not a box hidden inside the answer.
+ */
+export const COMPOSITE: FieldKind[] = ['name', 'address'];
+
+export type NamePart = 'prefix' | 'first' | 'middle' | 'last' | 'suffix';
+export type AddressPart = 'line1' | 'line2' | 'city' | 'state' | 'zip' | 'country';
+
+export const NAME_PARTS: readonly NamePart[] = ['prefix', 'first', 'middle', 'last', 'suffix'];
+export const ADDRESS_PARTS: readonly AddressPart[] = ['line1', 'line2', 'city', 'state', 'zip', 'country'];
+
+export const NAME_PART_LABELS: Record<NamePart, string> = {
+  prefix: 'Title',
+  first: 'First name',
+  middle: 'Middle name',
+  last: 'Last name',
+  suffix: 'Suffix',
+};
+
+export const ADDRESS_PART_LABELS: Record<AddressPart, string> = {
+  line1: 'Address line 1',
+  line2: 'Address line 2',
+  city: 'City',
+  state: 'State / District',
+  zip: 'PIN / Postal code',
+  country: 'Country',
+};
+
+/** A composite's parts switch on a saved field the builder never opened — and the
+ * inspector seeds from these, so the object it writes always holds every part. */
+export const NAME_PARTS_DEFAULT: Record<NamePart, boolean> = {
+  prefix: false,
+  first: true,
+  middle: false,
+  last: true,
+  suffix: false,
+};
+
+export const ADDRESS_PARTS_DEFAULT: Record<AddressPart, boolean> = {
+  line1: true,
+  line2: false,
+  city: true,
+  state: true,
+  zip: true,
+  country: true,
+};
+
+export function isComposite(kind: FieldKind): boolean {
+  return COMPOSITE.includes(kind);
+}
+
+/** The parts this field asks for and stores, in the order the form shows them. */
+export function compositeParts(field: FormFieldDef): string[] {
+  if (field.type === 'name') {
+    const on = field.name_parts;
+    return NAME_PARTS.filter((part) => (on ? on[part] : NAME_PARTS_DEFAULT[part]));
+  }
+  if (field.type === 'address') {
+    // Country is a part somebody types, not a dropdown: a list of countries would have
+    // to arrive with a list of states for every one of them, and a half-filled dropdown
+    // is worse than a box that accepts any country spelled any way.
+    const on = field.address_parts;
+    return ADDRESS_PARTS.filter((part) => (on ? on[part] : ADDRESS_PARTS_DEFAULT[part]));
+  }
+  return [];
+}
+
+/** What each part of a composite reads as, on screen and in an export. */
+export function partLabel(field: FormFieldDef, part: string): string {
+  if (field.type === 'name') return NAME_PART_LABELS[part as NamePart] ?? part;
+  if (field.type === 'address') return ADDRESS_PART_LABELS[part as AddressPart] ?? part;
+  return part;
+}
+
+/** One part of a composite answer, blank read as `''` so the emptiness rule has one shape. */
+export function partValue(raw: unknown, part: string): string {
+  if (typeof raw === 'string') return part === 'first' || part === 'line1' ? raw.trim() : '';
+  if (!raw || typeof raw !== 'object') return '';
+  const value = (raw as Record<string, unknown>)[part];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 /** Kinds whose choices the builder edits as one list. `matrix` is not in here: its rows
  * and columns are two axes, not a choice list. */
 export const OPTION_BEARING: FieldKind[] = ['select', 'radio', 'checkbox', 'multiselect', 'image_choice'];
@@ -176,7 +263,14 @@ export interface FormFieldDef {
   slider?: { step: number; show_value: boolean };
   matrix?: MatrixAxes;
   decision?: { approve: string; reject: string; ask_reason: boolean };
+  /** `name` only: the parts shown and stored. */
+  name_parts?: Partial<Record<NamePart, boolean>>;
+  /** `address` only: the parts shown and stored. */
+  address_parts?: Partial<Record<AddressPart, boolean>>;
 }
+
+/** A part longer than this is somebody pasting a paragraph into one box of it. */
+export const COMPOSITE_PART_MAX_CHARS = 200;
 
 /** A matrix wider than this is a spreadsheet, not a form question. */
 export const MATRIX_MAX_ROWS = 20;
@@ -282,6 +376,27 @@ export const formFieldSchema: z.ZodType<FormFieldDef> = z
         approve: z.string().max(60).default('Approve'),
         reject: z.string().max(60).default('Reject'),
         ask_reason: z.boolean().default(false),
+      })
+      .passthrough()
+      .optional(),
+    name_parts: z
+      .object({
+        prefix: z.boolean().default(NAME_PARTS_DEFAULT.prefix),
+        first: z.boolean().default(NAME_PARTS_DEFAULT.first),
+        middle: z.boolean().default(NAME_PARTS_DEFAULT.middle),
+        last: z.boolean().default(NAME_PARTS_DEFAULT.last),
+        suffix: z.boolean().default(NAME_PARTS_DEFAULT.suffix),
+      })
+      .passthrough()
+      .optional(),
+    address_parts: z
+      .object({
+        line1: z.boolean().default(ADDRESS_PARTS_DEFAULT.line1),
+        line2: z.boolean().default(ADDRESS_PARTS_DEFAULT.line2),
+        city: z.boolean().default(ADDRESS_PARTS_DEFAULT.city),
+        state: z.boolean().default(ADDRESS_PARTS_DEFAULT.state),
+        zip: z.boolean().default(ADDRESS_PARTS_DEFAULT.zip),
+        country: z.boolean().default(ADDRESS_PARTS_DEFAULT.country),
       })
       .passthrough()
       .optional(),
@@ -408,9 +523,13 @@ export function validateFieldSemantics(fields: FormFieldDef[]): string | null {
       }
     }
 
+    if (isComposite(field.type) && compositeParts(field).length === 0) {
+      return `"${field.label}" has every part switched off, so it asks nothing`;
+    }
+
     const def = field.default_value?.trim();
     if (def) {
-      if (isStructured(field.type)) {
+      if (isStructured(field.type) || isComposite(field.type)) {
         return `"${field.label}" cannot have a default answer — ${FIELD_KIND_LABELS[field.type]} has more than one part`;
       }
       if (OPTION_BEARING.includes(field.type) || field.type === 'yes_or_no' || field.type === 'decision') {
@@ -516,7 +635,7 @@ export const FIELD_KIND_LABELS: Record<FieldKind, string> = {
   signature: 'Signature',
   geolocation: 'Location',
   url: 'Website',
-  name: 'Full name',
+  name: 'Name',
   address: 'Address',
   section: 'Section title',
   heading: 'Heading',
@@ -542,7 +661,7 @@ export function blankField(type: FieldKind, index: number): FormFieldDef {
   const label =
     type === 'email' ? 'Email address'
     : type === 'phone' ? 'Phone number'
-    : type === 'name' ? 'Full name'
+    : type === 'name' ? 'Name'
     : type === 'address' ? 'Address'
     : type === 'date' ? 'Date'
     : type === 'time' ? 'Time'

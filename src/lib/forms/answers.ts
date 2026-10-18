@@ -2,8 +2,12 @@ import { z } from 'zod';
 import {
   choiceValues,
   collectsMany,
+  COMPOSITE_PART_MAX_CHARS,
+  compositeParts,
   fieldIsVisible,
+  isComposite,
   isPresentational,
+  partValue,
   SIGNATURE_MAX_CHARS,
   type FormFieldDef,
 } from './types';
@@ -54,6 +58,14 @@ export function checkAnswers(
       // "Tick this to continue" reads better than "Field is required" for a
       // consent box, and the field already carries that message.
       if (field.required) errors[field.id] = messageFor(field, `${field.label || 'This field'} is required`);
+      continue;
+    }
+
+    // A page that was open across the change still posts one box of text for a field
+    // that now has parts. Filling every part with nothing would record an empty answer
+    // and call it a submission, so the visitor is told to reload instead.
+    if (isComposite(field.type) && typeof raw === 'string') {
+      errors[field.id] = `“${field.label || 'This field'}” is answered part by part now. Reload the page and answer again.`;
       continue;
     }
 
@@ -111,17 +123,35 @@ function schemaFor(field: FormFieldDef): z.ZodTypeAny {
 
   switch (field.type) {
     case 'text':
-    case 'name':
       return z
         .preprocess(trimToString, z.string().min(1).max(v.max_len ?? 2000))
         .refine((s) => !v.min_len || s.length >= v.min_len, `Use at least ${v.min_len} characters`)
         .refine((s) => !v.pattern || safePattern(v.pattern).test(s), `“${label}” is not in the expected format`);
 
     case 'textarea':
-    case 'address':
       return z
         .preprocess(trimToString, z.string().min(1).max(v.max_len ?? 8000))
         .refine((s) => !v.min_len || s.length >= v.min_len, `Use at least ${v.min_len} characters`);
+
+    case 'name':
+    case 'address': {
+      const parts = compositeParts(field);
+      return z
+        .preprocess(asRecord, z.record(z.string(), z.unknown()))
+        .refine((o) => Object.keys(o).every((key) => parts.includes(key)), `Only answer the parts “${label}” shows`)
+        .transform((o) => Object.fromEntries(parts.map((part) => [part, partValue(o, part)])))
+        .refine(
+          (o) => Object.values(o).every((value) => value.length <= COMPOSITE_PART_MAX_CHARS),
+          `Keep each part of “${label}” under ${COMPOSITE_PART_MAX_CHARS} characters`,
+        )
+        .refine((o) => !v.max_len || Object.values(o).join(' ').length <= v.max_len, `Use at most ${v.max_len} characters`)
+        .refine(
+          // A required composite wants what it shows: the parts are the question, and
+          // switching one on in the builder is what makes it an answer the app needs.
+          (o) => !field.required || parts.every((part) => o[part] !== ''),
+          `Fill in every part of “${label}”`,
+        );
+    }
 
     case 'email':
       return z.preprocess(trimToString, z.string().email('Enter an email address like you@example.com').max(320));
