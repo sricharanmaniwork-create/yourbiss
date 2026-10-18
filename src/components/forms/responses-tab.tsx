@@ -5,7 +5,7 @@ import { Download, Inbox, Search, Trash } from 'lucide-react';
 import type { FormSubmissionRow } from '@/lib/types';
 import type { FormFieldDef } from '@/lib/forms/types';
 import { isPresentational } from '@/lib/forms/types';
-import { answerSummary, orderedFields } from '@/lib/forms/definition';
+import { answerSummary, answerValue, orderedFields } from '@/lib/forms/definition';
 import { deleteSubmission, setSubmissionState } from '@/lib/actions/forms';
 import {
   Button,
@@ -256,7 +256,11 @@ function Detail({
 }) {
   if (!submission) return null;
 
-  const answers = answerSummary(fields, submission.data);
+  const answers = fields.map((field) => ({
+    label: field.label || field.id,
+    value: answerValue(field, submission.data[field.id]),
+    signature: field.type === 'signature' && typeof submission.data[field.id] === 'string' && (submission.data[field.id] as string).startsWith('data:image/') ? (submission.data[field.id] as string) : null,
+  }));
 
   return (
     <Modal
@@ -302,7 +306,13 @@ function Detail({
             <div key={`${answer.label}-${index}`} className="border-b border-line pb-2 last:border-b-0 last:pb-0">
               <dt className="text-[11.5px] font-semibold uppercase tracking-wide text-muted">{answer.label}</dt>
               <dd className="mt-0.5 text-[13px] break-words whitespace-pre-wrap text-ink">
-                {answer.value === '' ? <span className="text-muted">No answer</span> : answer.value}
+                {answer.signature ? (
+                  <img src={answer.signature} alt={`${answer.label} signature`} className="h-20 rounded-md border border-line bg-white" />
+                ) : answer.value === '' ? (
+                  <span className="text-muted">No answer</span>
+                ) : (
+                  answer.value
+                )}
               </dd>
             </div>
           ))

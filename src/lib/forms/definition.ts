@@ -1,4 +1,5 @@
 import {
+  choiceLabel,
   fieldIsVisible,
   isPresentational,
   type FormFieldDef,
@@ -56,13 +57,79 @@ export function visibleFields(fields: FormFieldDef[], answers: Record<string, un
   return fields.filter((field) => fieldIsVisible(field, answers));
 }
 
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/**
+ * One answer as the flat text a table, a CSV or an email is made of. Everything
+ * that collects more than a scalar — a matrix, a decision, a location — has its
+ * shape spelled out here, because the export cannot carry a nested value.
+ */
 export function answerValue(field: FormFieldDef, raw: unknown): string {
   if (raw === undefined || raw === null) return '';
-  if (Array.isArray(raw)) return raw.map((v) => String(v)).filter(Boolean).join(', ');
+  if (Array.isArray(raw)) {
+    return raw.map((v) => String(v)).filter(Boolean).map((v) => choiceLabel(field, v)).join(', ');
+  }
   if (typeof raw === 'boolean') return raw ? 'Yes' : 'No';
-  if (field.type === 'rating') return raw === '' ? '' : `${raw} / 5`;
-  if (field.type === 'rupees') return raw === '' ? '' : `₹${raw}`;
-  return String(raw);
+
+  if (typeof raw === 'object') {
+    const parts = raw as Record<string, unknown>;
+    if (field.type === 'matrix') {
+      return (field.matrix?.rows ?? [])
+        .filter((row) => parts[row.value])
+        .map((row) => `${row.label}: ${columnLabel(field, String(parts[row.value]))}`)
+        .join('; ');
+    }
+    if (field.type === 'decision') {
+      const chosen = choiceLabel(field, String(parts.value ?? ''));
+      const reason = String(parts.reason ?? '').trim();
+      return reason ? `${chosen} — ${reason}` : chosen;
+    }
+    if (field.type === 'geolocation') {
+      const lat = Number(parts.lat);
+      const lng = Number(parts.lng);
+      return Number.isFinite(lat) && Number.isFinite(lng) ? `${lat}, ${lng}` : '';
+    }
+    return '';
+  }
+
+  const text = String(raw);
+  if (text === '') return '';
+
+  switch (field.type) {
+    case 'rating':
+      return `${text} / ${field.rating?.max ?? 5}`;
+    case 'rupees':
+      return `₹${text}`;
+    case 'currency':
+      return `${field.currency_symbol || '₹'}${text}`;
+    case 'signature':
+      // The stored answer is the image itself. A table cell and a CSV carry the
+      // fact that they signed; the response detail shows the drawing.
+      return text.startsWith('data:image/') ? 'Signed' : '';
+    case 'slider':
+      return field.suffix ? `${text} ${field.suffix}` : text;
+    case 'datetime':
+      return text.replace('T', ' ');
+    case 'monthyear': {
+      const [year, month] = text.split('-');
+      return `${MONTH_NAMES[Number(month) - 1] ?? month} ${year}`;
+    }
+    case 'select':
+    case 'radio':
+    case 'yes_or_no':
+    case 'decision':
+    case 'image_choice':
+      return choiceLabel(field, text);
+    default:
+      return text;
+  }
+}
+
+function columnLabel(field: FormFieldDef, value: string): string {
+  return field.matrix?.columns?.find((c) => String(c.value) === value)?.label ?? value;
 }
 
 /** Collecting fields only, in the order given, with the answer as text. */

@@ -3,8 +3,19 @@
 import { useMemo, useState, useTransition } from 'react';
 import { Copy, GripVertical, Trash } from 'lucide-react';
 import type { ActionState } from '@/lib/types';
-import type { FormFieldDef, FieldKind, LogicOperator } from '@/lib/forms/types';
-import { FIELD_KIND_LABELS, blankField, isPresentational } from '@/lib/forms/types';
+import type { FieldKind, FormFieldDef, LogicOperator, MatrixAxes, RatingSymbol } from '@/lib/forms/types';
+import {
+  FIELD_KIND_LABELS,
+  MATRIX_MAX_COLUMNS,
+  MATRIX_MAX_ROWS,
+  OPTION_BEARING,
+  SINGLE_CHOICE,
+  blankField,
+  choiceLabel,
+  choiceValues,
+  collectsMany,
+  isPresentational,
+} from '@/lib/forms/types';
 import { saveFormDefinition } from '@/lib/actions/forms';
 import { Button, Field, FormStatus, Input, Select, Switch, Textarea, toast, useFieldId } from '@/components/ui';
 import type { FormDocument } from './form-overview';
@@ -28,11 +39,33 @@ type Rules = NonNullable<FormFieldDef['validation']>;
 const GROUPS: { label: string; kinds: FieldKind[] }[] = [
   {
     label: 'Questions',
-    kinds: ['text', 'textarea', 'name', 'email', 'phone', 'url', 'number', 'rupees', 'date', 'time', 'rating'],
+    kinds: [
+      'text', 'textarea', 'name', 'email', 'phone', 'url', 'number', 'rupees', 'currency', 'date', 'datetime',
+      'monthyear', 'time', 'rating', 'slider', 'signature', 'geolocation',
+    ],
   },
-  { label: 'Choices', kinds: ['select', 'radio', 'checkbox', 'multiselect', 'checkbox_single'] },
+  {
+    label: 'Choices',
+    kinds: ['select', 'radio', 'checkbox', 'multiselect', 'checkbox_single', 'image_choice', 'yes_or_no', 'decision', 'matrix'],
+  },
   { label: 'Layout', kinds: ['section', 'heading', 'note', 'divider', 'spacer'] },
 ];
+
+/** Kinds that can start with an answer already in the box. */
+const DEFAULTABLE: FieldKind[] = [
+  'text', 'textarea', 'name', 'email', 'phone', 'url', 'number', 'rupees', 'currency', 'date', 'time',
+  'select', 'radio', 'checkbox', 'multiselect', 'image_choice', 'yes_or_no',
+];
+
+const RATING_SYMBOLS: RatingSymbol[] = ['number', 'star', 'heart', 'thumb', 'smiley'];
+
+const RATING_SYMBOL_LABELS: Record<RatingSymbol, string> = {
+  number: 'Numbers',
+  star: 'Stars',
+  heart: 'Hearts',
+  thumb: 'Thumbs up',
+  smiley: 'Smileys',
+};
 
 const OPERATORS: LogicOperator[] = ['is', 'is_not', 'contains', 'is_empty', 'is_filled', 'gt', 'lt'];
 
@@ -332,36 +365,121 @@ function Row({ field }: { field: FormFieldDef }) {
 
 function Mock({ field }: { field: FormFieldDef }) {
   const box = 'mt-1.5 h-8 rounded-md border border-line bg-white';
+  const chip = 'inline-block h-3 w-3 border border-line bg-white';
   switch (field.type) {
     case 'textarea':
+    case 'address':
       return <div className="mt-1.5 h-16 rounded-md border border-line bg-white" />;
+
     case 'radio':
     case 'checkbox':
     case 'multiselect':
+    case 'yes_or_no':
       return (
-        <div className="mt-1.5 grid gap-1">
+        <div className={`mt-1.5 grid gap-1 ${field.inline_choices ? 'grid-flow-col justify-start' : ''}`}>
+          {(field.type === 'yes_or_no' ? [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }] : (field.options ?? []).slice(0, 3)).map(
+            (option) => (
+              <span key={option.value} className="flex items-center gap-1.5 text-[12px] text-muted">
+                <span className={`${chip} ${['radio', 'yes_or_no'].includes(field.type) ? 'rounded-full' : 'rounded-sm'}`} />
+                {option.label}
+              </span>
+            ),
+          )}
+        </div>
+      );
+
+    case 'image_choice':
+      return (
+        <div className="mt-1.5 flex gap-1.5">
           {(field.options ?? []).slice(0, 3).map((option) => (
-            <span key={option.value} className="flex items-center gap-1.5 text-[12px] text-muted">
-              <span className={`inline-block ${field.type === 'radio' ? 'h-3 w-3 rounded-full' : 'h-3 w-3 rounded-sm'} border border-line bg-white`} />
+            <span key={option.value} className="grid gap-1 text-center text-[11px] text-muted">
+              <span className="h-10 w-16 rounded border border-line bg-canvas" />
               {option.label}
             </span>
           ))}
         </div>
       );
+
     case 'checkbox_single':
-      return <span className="mt-1.5 flex items-center gap-1.5 text-[12px] text-muted"><span className="inline-block h-3 w-3 rounded-sm border border-line bg-white" />Must be checked</span>;
-    case 'rating':
+      return <span className="mt-1.5 flex items-center gap-1.5 text-[12px] text-muted"><span className={`${chip} rounded-sm`} />Must be checked</span>;
+
+    case 'rating': {
+      const min = field.rating?.min ?? 1;
+      const max = field.rating?.max ?? 5;
+      const scores: number[] = [];
+      for (let score = min; score <= max; score += 1) scores.push(score);
       return (
         <div className="mt-1.5 flex gap-1">
-          {[1, 2, 3, 4, 5].map((score) => (
+          {scores.map((score) => (
             <span key={score} className="inline-block h-7 w-7 rounded-md border border-line bg-white text-center text-[12px] leading-7 text-muted">
               {score}
             </span>
           ))}
         </div>
       );
+    }
+
+    case 'slider':
+      return (
+        <div className="mt-1.5 flex items-center gap-2">
+          <span className="h-1.5 flex-1 rounded-full bg-line" />
+          <span className="text-[11px] text-muted">
+            {field.validation?.min ?? 0}–{field.validation?.max ?? 100}
+          </span>
+        </div>
+      );
+
+    case 'signature':
+      return <div className="mt-1.5 h-16 rounded-md border border-dashed border-line bg-white" />;
+
+    case 'geolocation':
+      return (
+        <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+          <span className={box} />
+          <span className={box} />
+        </div>
+      );
+
+    case 'decision':
+      return (
+        <div className="mt-1.5 flex gap-1.5">
+          <span className="h-7 flex-1 rounded-md border border-line bg-white text-center text-[11.5px] leading-7 text-muted">
+            {field.decision?.approve || 'Approve'}
+          </span>
+          <span className="h-7 flex-1 rounded-md border border-line bg-white text-center text-[11.5px] leading-7 text-muted">
+            {field.decision?.reject || 'Reject'}
+          </span>
+        </div>
+      );
+
+    case 'matrix':
+      return (
+        <div className="mt-1.5 overflow-hidden rounded-md border border-line bg-white">
+          <div className="flex text-[11px] text-muted">
+            <span className="flex-1 border-b border-r border-line px-2 py-1">
+              {(field.matrix?.rows ?? [])[0]?.label ?? 'Row'}
+            </span>
+            {(field.matrix?.columns ?? []).slice(0, 3).map((column) => (
+              <span key={column.value} className="w-14 border-b border-r border-line px-2 py-1 last:border-r-0">
+                {column.label}
+              </span>
+            ))}
+          </div>
+        </div>
+      );
+
     case 'select':
       return <div className={`${box} flex items-center justify-between px-2 text-[12px] text-muted`}><span>{(field.options ?? [])[0]?.label ?? 'Choose one…'}</span><span aria-hidden="true">▾</span></div>;
+
+    case 'rupees':
+    case 'currency':
+      return (
+        <div className={`${box} flex items-center gap-1.5 px-2 text-[12px] text-muted`}>
+          <span>{field.type === 'rupees' ? '₹' : field.currency_symbol || '₹'}</span>
+          <span className="h-full flex-1" />
+        </div>
+      );
+
     default:
       return <div className={box} />;
   }
@@ -380,9 +498,11 @@ function FieldInspector({
 }) {
   const ids = useFieldId('insp');
   const collecting = !isPresentational(field.type);
-  const choiceBearing = ['select', 'radio', 'checkbox', 'multiselect'].includes(field.type);
+  const choiceBearing = OPTION_BEARING.includes(field.type);
   const textish = ['text', 'name', 'textarea', 'address'].includes(field.type);
-  const numeric = ['number', 'rupees'].includes(field.type);
+  const numeric = ['number', 'rupees', 'currency'].includes(field.type);
+  const affixable = textish || numeric;
+  const defaultable = collecting && DEFAULTABLE.includes(field.type);
   const v = field.validation ?? {};
   const labelWord = ['section', 'heading', 'note'].includes(field.type) ? 'Text' : 'Label';
 
@@ -465,6 +585,182 @@ function FieldInspector({
         <OptionsEditor field={field} canManage={canManage} onChange={onChange} />
       )}
 
+      {field.type === 'matrix' && (
+        <MatrixEditor field={field} canManage={canManage} onChange={onChange} />
+      )}
+
+      {field.type === 'decision' && (
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Approve reads" htmlFor={`${ids}-approve`}>
+            <Input
+              id={`${ids}-approve`}
+              value={field.decision?.approve ?? 'Approve'}
+              maxLength={60}
+              disabled={!canManage}
+              onChange={(event) => onChange({ decision: { approve: event.target.value, reject: field.decision?.reject ?? 'Reject', ask_reason: field.decision?.ask_reason ?? false } })}
+            />
+          </Field>
+          <Field label="Reject reads" htmlFor={`${ids}-reject`}>
+            <Input
+              id={`${ids}-reject`}
+              value={field.decision?.reject ?? 'Reject'}
+              maxLength={60}
+              disabled={!canManage}
+              onChange={(event) => onChange({ decision: { approve: field.decision?.approve ?? 'Approve', reject: event.target.value, ask_reason: field.decision?.ask_reason ?? false } })}
+            />
+          </Field>
+          <div className="col-span-2 flex items-center justify-between gap-3 rounded-md border border-line px-3 py-2.5">
+            <span className="text-[12.5px] font-medium text-ink">Ask for a reason</span>
+            <Switch
+              checked={field.decision?.ask_reason === true}
+              disabled={!canManage}
+              label="Ask for a reason"
+              onChange={(checked) => onChange({ decision: { approve: field.decision?.approve ?? 'Approve', reject: field.decision?.reject ?? 'Reject', ask_reason: checked } })}
+            />
+          </div>
+        </div>
+      )}
+
+      {field.type === 'rating' && (
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Lowest" htmlFor={`${ids}-rmin`}>
+            <Input
+              id={`${ids}-rmin`}
+              type="number"
+              min={0}
+              max={9}
+              value={field.rating?.min ?? 1}
+              disabled={!canManage}
+              onChange={(event) =>
+                onChange({ rating: { min: numberOrUndefined(event.target.value) ?? 1, max: field.rating?.max ?? 5, symbol: field.rating?.symbol ?? 'star' } })
+              }
+            />
+          </Field>
+          <Field label="Highest" htmlFor={`${ids}-rmax`}>
+            <Input
+              id={`${ids}-rmax`}
+              type="number"
+              min={1}
+              max={10}
+              value={field.rating?.max ?? 5}
+              disabled={!canManage}
+              onChange={(event) =>
+                onChange({ rating: { min: field.rating?.min ?? 1, max: numberOrUndefined(event.target.value) ?? 5, symbol: field.rating?.symbol ?? 'star' } })
+              }
+            />
+          </Field>
+          <Field label="Drawn as" htmlFor={`${ids}-rsymbol`} hint="The same count of marks, in another shape." >
+            <Select
+              id={`${ids}-rsymbol`}
+              value={field.rating?.symbol ?? 'star'}
+              disabled={!canManage}
+              onChange={(event) =>
+                onChange({ rating: { min: field.rating?.min ?? 1, max: field.rating?.max ?? 5, symbol: event.target.value as RatingSymbol } })
+              }
+            >
+              {RATING_SYMBOLS.map((symbol) => (
+                <option key={symbol} value={symbol}>
+                  {RATING_SYMBOL_LABELS[symbol]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+      )}
+
+      {field.type === 'slider' && (
+        <Field label="Step" htmlFor={`${ids}-step`} hint="How far the handle moves at a time.">
+          <Input
+            id={`${ids}-step`}
+            type="number"
+            min={0.1}
+            step={0.1}
+            value={field.slider?.step ?? 1}
+            disabled={!canManage}
+            onChange={(event) =>
+              onChange({ slider: { step: numberOrUndefined(event.target.value) ?? 1, show_value: field.slider?.show_value ?? true } })
+            }
+          />
+        </Field>
+      )}
+
+      {field.type === 'currency' && (
+        <Field label="Symbol" htmlFor={`${ids}-symbol`} hint="Drawn in front of the number. The answer stays a number.">
+          <Input
+            id={`${ids}-symbol`}
+            value={field.currency_symbol ?? '₹'}
+            maxLength={6}
+            disabled={!canManage}
+            onChange={(event) => onChange({ currency_symbol: event.target.value })}
+          />
+        </Field>
+      )}
+
+      {(field.type === 'select' || field.type === 'radio' || field.type === 'checkbox' || field.type === 'multiselect' || field.type === 'image_choice' || field.type === 'yes_or_no') && (
+        <div className="grid gap-2">
+          {['radio', 'checkbox', 'image_choice', 'yes_or_no'].includes(field.type) && (
+            <div className="flex items-center justify-between gap-3 rounded-md border border-line px-3 py-2.5">
+              <span className="text-[12.5px] font-medium text-ink">Choices side by side</span>
+              <Switch
+                checked={field.inline_choices === true}
+                disabled={!canManage}
+                label="Choices side by side"
+                onChange={(checked) => onChange({ inline_choices: checked })}
+              />
+            </div>
+          )}
+          {field.type === 'select' && (
+            <div className="flex items-center justify-between gap-3 rounded-md border border-line px-3 py-2.5">
+              <span className="text-[12.5px] font-medium text-ink">Search box in the dropdown</span>
+              <Switch
+                checked={field.searchable === true}
+                disabled={!canManage}
+                label="Search box in the dropdown"
+                onChange={(checked) => onChange({ searchable: checked })}
+              />
+            </div>
+          )}
+          {field.type === 'image_choice' && (
+            <Field label="Pick" htmlFor={`${ids}-pick`} hint="One picture, or as many as they like.">
+              <Select
+                id={`${ids}-pick`}
+                value={field.choice_style ?? 'radio'}
+                disabled={!canManage}
+                onChange={(event) => onChange({ choice_style: event.target.value === 'checkbox' ? 'checkbox' : 'radio' })}
+              >
+                <option value="radio">one choice</option>
+                <option value="checkbox">several choices</option>
+              </Select>
+            </Field>
+          )}
+        </div>
+      )}
+
+      {affixable && (
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Prefix" htmlFor={`${ids}-prefix`} hint="Drawn before the box.">
+            <Input
+              id={`${ids}-prefix`}
+              value={field.prefix ?? ''}
+              maxLength={40}
+              disabled={!canManage}
+              onChange={(event) => onChange({ prefix: event.target.value })}
+            />
+          </Field>
+          <Field label="Suffix" htmlFor={`${ids}-suffix`} hint="Drawn after the box.">
+            <Input
+              id={`${ids}-suffix`}
+              value={field.suffix ?? ''}
+              maxLength={40}
+              disabled={!canManage}
+              onChange={(event) => onChange({ suffix: event.target.value })}
+            />
+          </Field>
+        </div>
+      )}
+
+      {defaultable && <DefaultEditor field={field} canManage={canManage} onChange={onChange} idPrefix={ids} />}
+
       {textish && (
         <div className="grid grid-cols-2 gap-2">
           <Field label="Min characters" htmlFor={`${ids}-minlen`}>
@@ -511,9 +807,9 @@ function FieldInspector({
         </>
       ) : null}
 
-      {numeric && (
+      {(numeric || field.type === 'slider') && (
         <div className="grid grid-cols-2 gap-2">
-          <Field label="Smallest" htmlFor={`${ids}-min`}>
+          <Field label={field.type === 'slider' ? 'Left end' : 'Smallest'} htmlFor={`${ids}-min`}>
             <Input
               id={`${ids}-min`}
               type="number"
@@ -522,7 +818,7 @@ function FieldInspector({
               onChange={(event) => setValidation({ min: numberOrUndefined(event.target.value) })}
             />
           </Field>
-          <Field label="Largest" htmlFor={`${ids}-max`}>
+          <Field label={field.type === 'slider' ? 'Right end' : 'Largest'} htmlFor={`${ids}-max`}>
             <Input
               id={`${ids}-max`}
               type="number"
@@ -534,7 +830,7 @@ function FieldInspector({
         </div>
       )}
 
-      {(field.type === 'checkbox_single' || textish || numeric) && (
+      {collecting && (
         <Field label="Error message" htmlFor={`${ids}-message`} hint="Replaces the wording Yourbiss would otherwise use.">
           <Input
             id={`${ids}-message`}
@@ -569,8 +865,13 @@ function OptionsEditor({
   onChange: (changes: Partial<FormFieldDef>) => void;
 }) {
   const options = field.options ?? [];
+  const wantsGroup = field.type === 'select';
+  const wantsImage = field.type === 'image_choice';
+  const rowClass = wantsGroup
+    ? 'grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-1.5'
+    : 'grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-1.5';
 
-  const setAt = (index: number, changes: Partial<{ label: string; value: string }>) => {
+  const setAt = (index: number, changes: Partial<{ label: string; value: string; group: string; image_url: string }>) => {
     onChange({ options: options.map((option, at) => (at === index ? { ...option, ...changes } : option)) });
   };
 
@@ -582,9 +883,10 @@ function OptionsEditor({
           <Button
             variant="ghost"
             size="sm"
+            disabled={options.length >= 120}
             onClick={() => {
               const value = `option_${Math.random().toString(36).slice(2, 6)}`;
-              onChange({ options: [...options, { label: `Option ${options.length + 1}`, value }] });
+              onChange({ options: [...options, { label: `Option ${options.length + 1}`, value, ...(wantsImage ? { image_url: '' } : {}) }] });
             }}
           >
             Add choice
@@ -599,33 +901,56 @@ function OptionsEditor({
       )}
 
       {options.map((option, index) => (
-        <div key={`${option.value}-${index}`} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-1.5">
-          <Input
-            value={option.label}
-            maxLength={200}
-            disabled={!canManage}
-            aria-label={`Choice ${index + 1} label`}
-            onChange={(event) => setAt(index, { label: event.target.value })}
-          />
-          <Input
-            value={option.value}
-            maxLength={200}
-            spellCheck={false}
-            disabled={!canManage}
-            aria-label={`Choice ${index + 1} stored value`}
-            onChange={(event) => setAt(index, { value: event.target.value })}
-          />
-          {canManage ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label={`Remove choice ${index + 1}`}
-              onClick={() => onChange({ options: options.filter((_, at) => at !== index) })}
-            >
-              <Trash size={13} />
-            </Button>
-          ) : (
-            <span className="w-6" />
+        <div key={`${option.value}-${index}`} className="grid gap-1.5">
+          <div className={rowClass}>
+            <Input
+              value={option.label}
+              maxLength={200}
+              disabled={!canManage}
+              aria-label={`Choice ${index + 1} label`}
+              onChange={(event) => setAt(index, { label: event.target.value })}
+            />
+            <Input
+              value={option.value}
+              maxLength={200}
+              spellCheck={false}
+              disabled={!canManage}
+              aria-label={`Choice ${index + 1} stored value`}
+              onChange={(event) => setAt(index, { value: event.target.value })}
+            />
+            {wantsGroup && (
+              <Input
+                value={option.group ?? ''}
+                maxLength={120}
+                disabled={!canManage}
+                placeholder="Group"
+                aria-label={`Choice ${index + 1} group`}
+                onChange={(event) => setAt(index, { group: event.target.value })}
+              />
+            )}
+            {canManage ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label={`Remove choice ${index + 1}`}
+                onClick={() => onChange({ options: options.filter((_, at) => at !== index) })}
+              >
+                <Trash size={13} />
+              </Button>
+            ) : (
+              <span className="w-6" />
+            )}
+          </div>
+          {wantsImage && (
+            <Input
+              value={option.image_url ?? ''}
+              maxLength={600}
+              spellCheck={false}
+              disabled={!canManage}
+              placeholder="https:// … the picture for this choice"
+              aria-label={`Choice ${index + 1} image`}
+              onChange={(event) => setAt(index, { image_url: event.target.value })}
+            />
           )}
         </div>
       ))}
@@ -633,7 +958,181 @@ function OptionsEditor({
         The label is what the visitor reads; the value is what is stored and exported. Conditional logic compares
         against the value.
       </p>
+      {wantsGroup && (
+        <p className="text-[11.5px] leading-relaxed text-muted">
+          Choices that share a group name sit together under that heading in the dropdown. Renaming a group leaves
+          every stored answer alone.
+        </p>
+      )}
     </div>
+  );
+}
+
+/** A matrix is two lists, not one: the questions down the side and the answers across. */
+function MatrixEditor({
+  field,
+  canManage,
+  onChange,
+}: {
+  field: FormFieldDef;
+  canManage: boolean;
+  onChange: (changes: Partial<FormFieldDef>) => void;
+}) {
+  const axes = field.matrix ?? { rows: [], columns: [] };
+
+  const setAxis = (which: 'rows' | 'columns', next: MatrixAxes['rows']) =>
+    onChange({ matrix: { ...axes, [which]: next } });
+
+  return (
+    <div className="grid gap-3">
+      {(['rows', 'columns'] as const).map((which) => {
+        const list = which === 'rows' ? axes.rows : axes.columns;
+        const limit = which === 'rows' ? MATRIX_MAX_ROWS : MATRIX_MAX_COLUMNS;
+        return (
+          <div key={which} className="grid gap-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[12.5px] font-medium text-ink">{which === 'rows' ? 'Questions (one per row)' : 'Answers (one per column)'}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!canManage || list.length >= limit}
+                onClick={() =>
+                  setAxis(which, [...list, { label: `${which === 'rows' ? 'Row' : 'Option'} ${list.length + 1}`, value: `${which}_${Math.random().toString(36).slice(2, 6)}` }])
+                }
+              >
+                Add {which === 'rows' ? 'row' : 'column'}
+              </Button>
+            </div>
+            {list.length === 0 && (
+              <p className="rounded-md border border-dashed border-line px-3 py-2 text-[12px] text-muted">
+                Publish needs at least one {which === 'rows' ? 'row' : 'column'}.
+              </p>
+            )}
+            {list.map((entry, index) => (
+              <div key={`${entry.value}-${index}`} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-1.5">
+                <Input
+                  value={entry.label}
+                  maxLength={200}
+                  disabled={!canManage}
+                  aria-label={`${which === 'rows' ? 'Row' : 'Column'} ${index + 1} label`}
+                  onChange={(event) =>
+                    setAxis(which, list.map((item, at) => (at === index ? { ...item, label: event.target.value } : item)))
+                  }
+                />
+                <Input
+                  value={entry.value}
+                  maxLength={200}
+                  spellCheck={false}
+                  disabled={!canManage}
+                  aria-label={`${which === 'rows' ? 'Row' : 'Column'} ${index + 1} stored value`}
+                  onChange={(event) =>
+                    setAxis(which, list.map((item, at) => (at === index ? { ...item, value: event.target.value } : item)))
+                  }
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={!canManage}
+                  aria-label={`Remove ${which === 'rows' ? 'row' : 'column'} ${index + 1}`}
+                  onClick={() => setAxis(which, list.filter((_, at) => at !== index))}
+                >
+                  <Trash size={13} />
+                </Button>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+      <p className="text-[11.5px] leading-relaxed text-muted">
+        A visitor picks one column for every row. When the question is required, an unanswered row stops the
+        submission.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The answer filled in before the visitor touches the field. It is drawn as the
+ * control&apos;s starting value, so what they finally send is what they saw — a default
+ * is never stored behind their back.
+ */
+function DefaultEditor({
+  field,
+  canManage,
+  onChange,
+  idPrefix,
+}: {
+  field: FormFieldDef;
+  canManage: boolean;
+  onChange: (changes: Partial<FormFieldDef>) => void;
+  idPrefix: string;
+}) {
+  const fromList = OPTION_BEARING.includes(field.type) || field.type === 'yes_or_no';
+  const current = field.default_value ?? '';
+  const many = collectsMany(field);
+  const picked = current.split(',').map((value) => value.trim()).filter(Boolean);
+
+  if (fromList && (SINGLE_CHOICE.includes(field.type) || many)) {
+    const options = field.type === 'yes_or_no' ? [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }] : field.options ?? [];
+    return (
+      <div className="grid gap-1.5">
+        <span className="text-[12.5px] font-medium text-ink" id={`${idPrefix}-default`}>
+          Default answer
+        </span>
+        {many ? (
+          <div className="grid gap-1">
+            {options.map((option) => {
+              const on = picked.includes(String(option.value));
+              return (
+                <label key={String(option.value)} className="flex items-center gap-2 text-[12.5px] text-ink-soft">
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    disabled={!canManage}
+                    onChange={() =>
+                      onChange({
+                        default_value: (on ? picked.filter((x) => x !== String(option.value)) : [...picked, String(option.value)]).join(','),
+                      })
+                    }
+                  />
+                  {option.label}
+                </label>
+              );
+            })}
+          </div>
+        ) : (
+          <Select
+            aria-labelledby={`${idPrefix}-default`}
+            value={current}
+            disabled={!canManage}
+            onChange={(event) => onChange({ default_value: event.target.value })}
+          >
+            <option value="">No default</option>
+            {options.map((option) => (
+              <option key={String(option.value)} value={String(option.value)}>
+                {choiceLabel(field, String(option.value))}
+              </option>
+            ))}
+          </Select>
+        )}
+        {many && picked.length > 0 && (
+          <p className="text-[11.5px] text-muted">{picked.map((value) => choiceLabel(field, value)).join(', ')}</p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <Field label="Default answer" htmlFor={`${idPrefix}-default`} hint="Starts the box filled in; the visitor can change or clear it.">
+      <Input
+        id={`${idPrefix}-default`}
+        type={field.type === 'number' || field.type === 'rupees' || field.type === 'currency' ? 'number' : field.type === 'date' ? 'date' : 'text'}
+        value={current}
+        maxLength={400}
+        disabled={!canManage}
+        onChange={(event) => onChange({ default_value: event.target.value })}
+      />
+    </Field>
   );
 }
 
@@ -715,8 +1214,8 @@ function LogicEditor({
 
           {logic.conditions.map((condition, index) => {
             const source = askable.find((other) => other.id === condition.field_id) ?? null;
-            const comparesToAChoice =
-              source !== null && (source.options ?? []).length > 0 && ['is', 'is_not', 'contains'].includes(condition.operator);
+            const choiceSource = source !== null && (SINGLE_CHOICE.includes(source.type) || collectsMany(source));
+            const comparesToAChoice = choiceSource && ['is', 'is_not', 'contains'].includes(condition.operator);
             return (
               <div key={index} className="grid gap-1.5 rounded-md border border-line bg-canvas px-2.5 py-2">
                 <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] gap-1.5">
@@ -758,9 +1257,9 @@ function LogicEditor({
                       disabled={!canManage}
                       onChange={(event) => setCondition(index, { value: event.target.value })}
                     >
-                      {(source?.options ?? []).map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
+                      {(source ? choiceValues(source) : []).map((value) => (
+                        <option key={value} value={value}>
+                          {source ? choiceLabel(source, value) : value}
                         </option>
                       ))}
                     </Select>
@@ -770,7 +1269,7 @@ function LogicEditor({
                       value={condition.value ?? ''}
                       maxLength={400}
                       disabled={!canManage}
-                      placeholder={source && ['number', 'rupees', 'rating'].includes(source.type) ? '10' : 'the answer'}
+                      placeholder={source && ['number', 'rupees', 'currency', 'rating', 'slider'].includes(source.type) ? '10' : 'the answer'}
                       onChange={(event) => setCondition(index, { value: event.target.value })}
                     />
                   ))}

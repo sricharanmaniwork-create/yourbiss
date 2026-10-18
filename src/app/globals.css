@@ -302,7 +302,7 @@
   color: #d92d20;
 }
 
-.yb-form input:not([type='checkbox']):not([type='radio']),
+.yb-form input:not([type='checkbox']):not([type='radio']):not([type='range']),
 .yb-form select,
 .yb-form textarea {
   box-sizing: border-box;
@@ -400,6 +400,249 @@
   color: #fff;
   background: var(--yb-accent);
   border-color: var(--yb-accent);
+}
+
+/* Prefix or suffix drawn around an input — decoration, never part of the answer. */
+.yb-form-affix {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.yb-form-affix > span {
+  flex: none;
+  font-size: 13px;
+  color: #667085;
+}
+
+/* Radio and checkbox choices laid out side by side. */
+.yb-form-choices-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+}
+
+.yb-form-image-choice {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 8px;
+  font-size: 12.5px;
+  color: #344054;
+  border: 1px solid #d5dae2;
+  border-radius: var(--yb-radius);
+}
+
+.yb-form-image-choice img {
+  width: 100%;
+  max-width: 160px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: var(--yb-radius);
+}
+
+/* Image choices: a card per option, with the picker sitting on the picture. */
+.yb-form-choices-image {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.yb-form-choices-image .yb-form-choice {
+  position: relative;
+  display: block;
+}
+
+.yb-form-choices-image .yb-form-choice input {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 1;
+  background: #fff;
+}
+
+.yb-form-choices-image .yb-form-image-choice {
+  width: 100%;
+}
+
+.yb-form-choices-image .yb-form-choice input:checked + .yb-form-image-choice {
+  color: var(--yb-accent);
+  border-color: var(--yb-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--yb-accent) 26%, transparent);
+}
+
+.yb-form-filter {
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+/* Matrix: a row per question, a column per answer. */
+.yb-form-matrix {
+  overflow-x: auto;
+  border-radius: var(--yb-radius);
+}
+
+.yb-form-matrix table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.yb-form-matrix th,
+.yb-form-matrix td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid #e9edf2;
+}
+
+.yb-form-matrix thead th {
+  font-weight: 600;
+  color: #475467;
+  background: #f7f8fa;
+}
+
+.yb-form-matrix tbody th {
+  font-weight: 500;
+  color: #344054;
+}
+
+.yb-form-matrix td {
+  text-align: center;
+}
+
+.yb-form-matrix input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--yb-accent);
+}
+
+.yb-form-matrix:focus-visible,
+.yb-form-sign:focus-visible,
+.yb-form-decision:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--yb-accent) 22%, transparent);
+  border-radius: var(--yb-radius);
+}
+
+.yb-form-slider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.yb-form-slider input[type='range'] {
+  flex: 1;
+  height: 24px;
+  accent-color: var(--yb-accent);
+}
+
+.yb-form-slider-value {
+  min-width: 48px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: #475467;
+  text-align: right;
+}
+
+/* Signature: the drawing is the answer, so it needs a pad and a way back to blank. */
+.yb-form-sign {
+  border: 1px solid #d5dae2;
+  border-radius: var(--yb-radius);
+  background: #fff;
+}
+
+.yb-form-sign-pad {
+  display: block;
+  width: 100%;
+  height: 140px;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.yb-form-sign-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #98a2b3;
+  border-top: 1px solid #e9edf2;
+}
+
+.yb-form-sign-clear {
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: #475467;
+  background: #f7f8fa;
+  border: 1px solid #d5dae2;
+  border-radius: var(--yb-radius);
+  cursor: pointer;
+}
+
+.yb-form-geo-parts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.yb-form-geo-part {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: #667085;
+}
+
+.yb-form-geo-locate {
+  margin-top: 8px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--yb-accent);
+  background: #fff;
+  border: 1px solid color-mix(in srgb, var(--yb-accent) 45%, #d5dae2);
+  border-radius: var(--yb-radius);
+  cursor: pointer;
+}
+
+.yb-form-geo-locate:disabled {
+  color: #98a2b3;
+  cursor: default;
+}
+
+/* Decision box: two named outcomes, and an optional reason. */
+.yb-form-decision-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.yb-form-decision-btn {
+  flex: 1;
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #475467;
+  background: #fff;
+  border: 1px solid #d5dae2;
+  border-radius: var(--yb-radius);
+  cursor: pointer;
+}
+
+.yb-form-decision-btn.on:first-child {
+  color: #fff;
+  background: var(--color-success);
+  border-color: var(--color-success);
+}
+
+.yb-form-decision-btn.on:last-child {
+  color: #fff;
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.yb-form-decision-reason {
+  margin-top: 8px;
 }
 
 .yb-form-help {

@@ -1,9 +1,20 @@
 'use client';
 
-import { useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { Heart, Smile, Star, ThumbsUp } from 'lucide-react';
 import { checkAnswers } from '@/lib/forms/answers';
 import { orderedFields } from '@/lib/forms/definition';
-import { fieldIsVisible, isPresentational, type FormFieldDef, type FormSettings, type FormTheme } from '@/lib/forms/types';
+import {
+  collectsMany,
+  fieldIsVisible,
+  isPresentational,
+  type FieldKind,
+  type FieldOption,
+  type FormFieldDef,
+  type FormSettings,
+  type FormTheme,
+  type RatingSymbol,
+} from '@/lib/forms/types';
 
 /**
  * The form a visitor fills in — the shared link, the embed frame on a published
@@ -37,9 +48,22 @@ interface SubmitResult {
   redirect?: string | null;
 }
 
+/** Choices a visitor never has to touch, because the form already knows them. */
+function seedDefaults(fields: FormFieldDef[]): Answers {
+  const seeded: Answers = {};
+  for (const field of fields) {
+    const value = field.default_value?.trim();
+    if (!value || isPresentational(field.type)) continue;
+    seeded[field.id] = collectsMany(field)
+      ? value.split(',').map((v) => v.trim()).filter(Boolean)
+      : value;
+  }
+  return seeded;
+}
+
 export function PublicForm({ formId, title, description, fields, settings, theme, variant = 'page' }: PublicFormProps) {
   const ordered = useMemo(() => orderedFields(fields, settings.field_order), [fields, settings.field_order]);
-  const [answers, setAnswers] = useState<Answers>({});
+  const [answers, setAnswers] = useState<Answers>(() => seedDefaults(ordered));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -220,6 +244,9 @@ function Body({
   );
 }
 
+/** Asked as a labelled list of options rather than a single box. */
+const CHOICE_KINDS: FieldKind[] = ['radio', 'checkbox', 'multiselect', 'image_choice', 'yes_or_no'];
+
 function FieldRow({
   field,
   value,
@@ -260,7 +287,7 @@ function FieldRow({
 
   const describedBy = [field.help ? `${field.id}-help` : null, error ? `${field.id}-error` : null].filter(Boolean).join(' ');
 
-  if (['radio', 'checkbox', 'multiselect'].includes(field.type)) {
+  if (CHOICE_KINDS.includes(field.type)) {
     return (
       <fieldset className={`yb-form-field yb-form-group${half}`} data-field={field.id}>
         <legend className="yb-form-label">
@@ -268,6 +295,24 @@ function FieldRow({
           {field.required && <span className="yb-form-req">*</span>}
         </legend>
         <ChoiceList field={field} value={value} setValue={setValue} />
+        {field.help && <p id={`${field.id}-help`} className="yb-form-help">{field.help}</p>}
+        {error && (
+          <p id={`${field.id}-error`} className="yb-form-error" role="alert">
+            {error}
+          </p>
+        )}
+      </fieldset>
+    );
+  }
+
+  if (field.type === 'matrix') {
+    return (
+      <fieldset className={`yb-form-field yb-form-group${half}`} data-field={field.id}>
+        <legend className="yb-form-label">
+          {field.label}
+          {field.required && <span className="yb-form-req">*</span>}
+        </legend>
+        <MatrixGrid field={field} value={value} error={!!error} setValue={setValue} />
         {field.help && <p id={`${field.id}-help`} className="yb-form-help">{field.help}</p>}
         {error && (
           <p id={`${field.id}-error`} className="yb-form-error" role="alert">
@@ -297,6 +342,12 @@ function FieldRow({
   );
 }
 
+/** `yes_or_no` carries its two answers in the type itself, not in an option list. */
+function choicesOf(field: FormFieldDef): FieldOption[] {
+  if (field.type === 'yes_or_no') return [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }];
+  return field.options ?? [];
+}
+
 function ChoiceList({
   field,
   value,
@@ -307,13 +358,17 @@ function ChoiceList({
   setValue: (id: string, value: unknown) => void;
 }) {
   const chosen = Array.isArray(value) ? value.map(String) : value === undefined || value === '' ? [] : [String(value)];
-  const multi = field.type === 'checkbox' || field.type === 'multiselect';
+  const multi = collectsMany(field);
+  const options = choicesOf(field);
+  const classes = ['yb-form-choices'];
+  if (field.inline_choices) classes.push('yb-form-choices-inline');
+  if (field.type === 'image_choice') classes.push('yb-form-choices-image');
 
   return (
-    <div className="yb-form-choices">
-      {(field.options ?? []).map((option, index) => {
+    <div className={classes.join(' ')}>
+      {options.map((option, index) => {
         const inputId = `${field.id}-${index}`;
-        const checked = multi ? chosen.includes(String(option.value)) : chosen[0] === String(option.value);
+        const picked = multi ? chosen.includes(String(option.value)) : chosen[0] === String(option.value);
         return (
           <label key={`${option.value}-${index}`} className="yb-form-choice" htmlFor={inputId}>
             <input
@@ -321,25 +376,108 @@ function ChoiceList({
               type={multi ? 'checkbox' : 'radio'}
               name={field.id}
               value={option.value}
-              checked={checked}
+              checked={picked}
               data-control={field.id}
               onChange={() =>
                 setValue(
                   field.id,
                   multi
-                    ? checked
+                    ? picked
                       ? chosen.filter((x) => x !== String(option.value))
                       : [...chosen, String(option.value)]
                     : option.value,
                 )
               }
             />
-            <span>{option.label}</span>
+            {option.image_url ? (
+              <span className="yb-form-image-choice">
+                <img src={option.image_url} alt="" />
+                <span>{option.label}</span>
+              </span>
+            ) : (
+              <span>{option.label}</span>
+            )}
           </label>
         );
       })}
     </div>
   );
+}
+
+function MatrixGrid({
+  field,
+  value,
+  error,
+  setValue,
+}: {
+  field: FormFieldDef;
+  value: unknown;
+  error: boolean;
+  setValue: (id: string, value: unknown) => void;
+}) {
+  const chosen = (value && typeof value === 'object' ? value : {}) as Record<string, string>;
+  const rows = field.matrix?.rows ?? [];
+  const columns = field.matrix?.columns ?? [];
+
+  return (
+    <div className="yb-form-matrix" data-control={field.id} tabIndex={-1} aria-invalid={error || undefined}>
+      <table>
+        <thead>
+          <tr>
+            <th scope="col" className="yb-form-matrix-corner" aria-hidden="true" />
+            {columns.map((column) => (
+              <th key={String(column.value)} scope="col">
+                {column.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={String(row.value)}>
+              <th scope="row">{row.label}</th>
+              {columns.map((column) => {
+                const inputId = `${field.id}-${row.value}-${column.value}`;
+                return (
+                  <td key={String(column.value)}>
+                    <input
+                      id={inputId}
+                      type="radio"
+                      name={`${field.id}-${row.value}`}
+                      checked={chosen[String(row.value)] === String(column.value)}
+                      aria-label={`${row.label}: ${column.label}`}
+                      onChange={() => setValue(field.id, { ...chosen, [String(row.value)]: String(column.value) })}
+                    />
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const RATING_GLYPH: Record<RatingSymbol, typeof Star | null> = {
+  number: null,
+  star: Star,
+  heart: Heart,
+  thumb: ThumbsUp,
+  smiley: Smile,
+};
+
+/** One set of identity and a11y attributes, shared by every control for this field. */
+function controlProps(field: FormFieldDef, error: boolean, describedBy: string) {
+  return {
+    id: field.id,
+    name: field.id,
+    'data-control': field.id,
+    placeholder: field.placeholder ?? undefined,
+    'aria-invalid': error || undefined,
+    'aria-describedby': describedBy || undefined,
+    'aria-required': field.required || undefined,
+  };
 }
 
 function Control({
@@ -355,33 +493,38 @@ function Control({
   setValue: (id: string, value: unknown) => void;
   describedBy: string;
 }) {
-  const text = value === undefined || value === null ? '' : String(value);
+  const text = value === undefined || value === null || typeof value === 'object' ? '' : String(value);
   const v = field.validation ?? {};
-  const shared = {
-    id: field.id,
-    name: field.id,
-    'data-control': field.id,
-    placeholder: field.placeholder ?? undefined,
-    'aria-invalid': error || undefined,
-    'aria-describedby': describedBy || undefined,
-    'aria-required': field.required || undefined,
-  };
+  const shared = controlProps(field, error, describedBy);
+
+  /** A code or a unit the answer cannot carry is drawn, never stored. */
+  const withAffix = (input: React.ReactNode) =>
+    field.prefix || field.suffix ? (
+      <span className="yb-form-affix">
+        {field.prefix && <span aria-hidden="true">{field.prefix}</span>}
+        {input}
+        {field.suffix && <span aria-hidden="true">{field.suffix}</span>}
+      </span>
+    ) : (
+      input
+    );
 
   switch (field.type) {
     case 'textarea':
-      return (
+    case 'address':
+      return withAffix(
         <textarea
           {...shared}
-          rows={4}
+          rows={field.type === 'address' ? 3 : 4}
           value={text}
           minLength={v.min_len}
           maxLength={v.max_len ?? 8000}
           onChange={(event) => setValue(field.id, event.target.value)}
-        />
+        />,
       );
 
     case 'email':
-      return (
+      return withAffix(
         <input
           {...shared}
           type="email"
@@ -390,11 +533,11 @@ function Control({
           value={text}
           maxLength={v.max_len ?? 320}
           onChange={(event) => setValue(field.id, event.target.value)}
-        />
+        />,
       );
 
     case 'phone':
-      return (
+      return withAffix(
         <input
           {...shared}
           type="tel"
@@ -403,11 +546,11 @@ function Control({
           value={text}
           maxLength={v.max_len ?? 32}
           onChange={(event) => setValue(field.id, event.target.value)}
-        />
+        />,
       );
 
     case 'url':
-      return (
+      return withAffix(
         <input
           {...shared}
           type="url"
@@ -416,14 +559,17 @@ function Control({
           value={text}
           maxLength={v.max_len ?? 600}
           onChange={(event) => setValue(field.id, event.target.value)}
-        />
+        />,
       );
 
     case 'number':
     case 'rupees':
-      return (
-        <span className={field.type === 'rupees' ? 'yb-form-money' : undefined}>
-          {field.type === 'rupees' && <span aria-hidden="true">₹</span>}
+    case 'currency': {
+      const symbol =
+        field.type === 'rupees' ? '₹' : field.type === 'currency' ? field.currency_symbol || '₹' : undefined;
+      return withAffix(
+        <span className="yb-form-money">
+          {symbol && <span aria-hidden="true">{symbol}</span>}
           <input
             {...shared}
             type="number"
@@ -434,26 +580,32 @@ function Control({
             value={text}
             onChange={(event) => setValue(field.id, event.target.value)}
           />
-        </span>
+        </span>,
       );
+    }
 
     case 'date':
-      return <input {...shared} type="date" value={text} onChange={(event) => setValue(field.id, event.target.value)} />;
+      return withAffix(
+        <input {...shared} type="date" value={text} onChange={(event) => setValue(field.id, event.target.value)} />,
+      );
+
+    case 'datetime':
+      return withAffix(
+        <input {...shared} type="datetime-local" value={text} onChange={(event) => setValue(field.id, event.target.value)} />,
+      );
+
+    case 'monthyear':
+      return withAffix(
+        <input {...shared} type="month" value={text} onChange={(event) => setValue(field.id, event.target.value)} />,
+      );
 
     case 'time':
-      return <input {...shared} type="time" value={text} onChange={(event) => setValue(field.id, event.target.value)} />;
+      return withAffix(
+        <input {...shared} type="time" value={text} onChange={(event) => setValue(field.id, event.target.value)} />,
+      );
 
     case 'select':
-      return (
-        <select {...shared} value={text} data-control={field.id} onChange={(event) => setValue(field.id, event.target.value)}>
-          <option value="">{field.placeholder || 'Choose one…'}</option>
-          {(field.options ?? []).map((option, index) => (
-            <option key={`${option.value}-${index}`} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      );
+      return withAffix(<SelectControl field={field} text={text} shared={shared} setValue={setValue} />);
 
     case 'checkbox_single':
       return (
@@ -474,40 +626,391 @@ function Control({
       );
 
     case 'rating': {
+      const min = field.rating?.min ?? 1;
+      const max = field.rating?.max ?? 5;
       const current = Number(value) || 0;
+      const Glyph = RATING_GLYPH[field.rating?.symbol ?? 'star'];
+      const scores: number[] = [];
+      for (let score = min; score <= max; score += 1) scores.push(score);
       return (
         <div className="yb-form-rating" role="radiogroup" aria-label={field.label} data-control={field.id} tabIndex={0}>
-          {[1, 2, 3, 4, 5].map((score) => (
+          {scores.map((score) => (
             <button
               type="button"
               key={score}
               className={score <= current ? 'yb-form-star on' : 'yb-form-star'}
               role="radio"
               aria-checked={score === current}
-              aria-label={`${score} of 5`}
+              aria-label={`${score} of ${max}`}
               onClick={() => setValue(field.id, score)}
             >
-              {score}
+              {Glyph ? <Glyph size={16} aria-hidden="true" /> : score}
             </button>
           ))}
         </div>
       );
     }
 
-    default:
+    case 'slider': {
+      const min = v.min ?? 0;
+      const max = v.max ?? 100;
+      const step = field.slider?.step ?? 1;
+      const current = value === undefined || value === '' ? min : Number(value);
       return (
+        <span className="yb-form-slider">
+          <input
+            {...shared}
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={Number.isFinite(current) ? current : min}
+            onChange={(event) => setValue(field.id, event.target.value)}
+          />
+          {field.slider?.show_value !== false && (
+            <output className="yb-form-slider-value" htmlFor={field.id}>
+              {text || min}
+              {field.suffix ? ` ${field.suffix}` : ''}
+            </output>
+          )}
+        </span>
+      );
+    }
+
+    case 'signature':
+      return (
+        <SignaturePad field={field} error={error} describedBy={describedBy} setValue={setValue} />
+      );
+
+    case 'geolocation':
+      return <LocationControl field={field} value={value} error={error} describedBy={describedBy} setValue={setValue} />;
+
+    case 'decision':
+      return <DecisionControl field={field} value={value} setValue={setValue} />;
+
+    case 'name':
+      return withAffix(
         <input
           {...shared}
           type="text"
-          autoComplete={field.type === 'name' ? 'name' : undefined}
+          autoComplete="name"
           value={text}
           minLength={v.min_len}
           maxLength={v.max_len ?? 2000}
-          pattern={field.type === 'text' || field.type === 'name' ? v.pattern : undefined}
+          pattern={v.pattern}
           onChange={(event) => setValue(field.id, event.target.value)}
-        />
+        />,
+      );
+
+    default:
+      return withAffix(
+        <input
+          {...shared}
+          type="text"
+          value={text}
+          minLength={v.min_len}
+          maxLength={v.max_len ?? 2000}
+          pattern={field.type === 'text' ? v.pattern : undefined}
+          onChange={(event) => setValue(field.id, event.target.value)}
+        />,
       );
   }
+}
+
+/** A dropdown long enough to hunt through gets a filter box, and groups if the builder set them. */
+function SelectControl({
+  field,
+  text,
+  shared,
+  setValue,
+}: {
+  field: FormFieldDef;
+  text: string;
+  shared: ReturnType<typeof controlProps>;
+  setValue: (id: string, value: unknown) => void;
+}) {
+  const [filter, setFilter] = useState('');
+  const options = field.options ?? [];
+  const term = filter.trim().toLowerCase();
+  const visible = term ? options.filter((o) => o.label.toLowerCase().includes(term)) : options;
+
+  const grouped = visible.some((o) => o.group);
+  const blocks: { group: string; options: typeof options }[] = [];
+  for (const option of visible) {
+    const group = option.group ?? '';
+    const last = blocks[blocks.length - 1];
+    if (last && last.group === group) last.options.push(option);
+    else blocks.push({ group, options: [option] });
+  }
+
+  return (
+    <>
+      {field.searchable && (
+        <input
+          type="search"
+          className="yb-form-filter"
+          value={filter}
+          aria-label={`Filter the options in ${field.label}`}
+          placeholder="Type to narrow the list"
+          onChange={(event) => setFilter(event.target.value)}
+        />
+      )}
+      <select {...shared} value={text} onChange={(event) => setValue(field.id, event.target.value)}>
+        <option value="">{field.placeholder || 'Choose one…'}</option>
+        {grouped
+          ? blocks.map((block, index) => (
+              <optgroup key={`${block.group}-${index}`} label={block.group || '—'}>
+                {block.options.map((option, optionIndex) => (
+                  <option key={`${option.value}-${index}-${optionIndex}`} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))
+          : visible.map((option, index) => (
+              <option key={`${option.value}-${index}`} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+      </select>
+    </>
+  );
+}
+
+/** The drawing is the answer, exported as a small PNG so a response row stays one value. */
+function SignaturePad({
+  field,
+  error,
+  describedBy,
+  setValue,
+}: {
+  field: FormFieldDef;
+  error: boolean;
+  describedBy: string;
+  setValue: (id: string, value: unknown) => void;
+}) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const pen = useRef<{ x: number; y: number } | null>(null);
+  const [signed, setSigned] = useState(false);
+
+  useEffect(() => {
+    const el = canvas.current;
+    if (!el) return;
+    const ratio = window.devicePixelRatio || 1;
+    el.width = Math.max(Math.round(el.clientWidth * ratio), 1);
+    el.height = Math.round(140 * ratio);
+    const ctx = el.getContext('2d');
+    if (!ctx) return;
+    ctx.scale(ratio, ratio);
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#111827';
+  }, []);
+
+  const pointOf = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    return { x: event.clientX - box.left, y: event.clientY - box.top };
+  };
+
+  const stroke = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const start = pen.current;
+    const ctx = event.currentTarget.getContext('2d');
+    if (!start || !ctx) return;
+    const next = pointOf(event);
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(next.x, next.y);
+    ctx.stroke();
+    pen.current = next;
+  };
+
+  const release = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!pen.current) return;
+    pen.current = null;
+    setSigned(true);
+    setValue(field.id, event.currentTarget.toDataURL('image/png'));
+  };
+
+  const clear = () => {
+    const el = canvas.current;
+    const ctx = el?.getContext('2d');
+    if (!el || !ctx) return;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, el.width, el.height);
+    ctx.restore();
+    setSigned(false);
+    setValue(field.id, '');
+  };
+
+  return (
+    <div className="yb-form-sign" data-control={field.id} tabIndex={-1} aria-invalid={error || undefined}>
+      <canvas
+        ref={canvas}
+        className="yb-form-sign-pad"
+        role="img"
+        aria-label={`${field.label} — draw with a mouse, pen or finger`}
+        aria-describedby={describedBy || undefined}
+        onPointerDown={(event) => {
+          event.currentTarget.setPointerCapture(event.pointerId);
+          pen.current = pointOf(event);
+        }}
+        onPointerMove={stroke}
+        onPointerUp={release}
+        onPointerCancel={release}
+      />
+      <div className="yb-form-sign-foot">
+        <span className="yb-form-sign-state">{signed ? 'Signed' : 'Draw your signature here'}</span>
+        {signed && (
+          <button type="button" className="yb-form-sign-clear" onClick={clear}>
+            Clear
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Coordinates, captured by the browser or typed. Turning them into a street
+ * address needs a geocoding service, so this stays a pair of numbers.
+ */
+function LocationControl({
+  field,
+  value,
+  error,
+  describedBy,
+  setValue,
+}: {
+  field: FormFieldDef;
+  value: unknown;
+  error: boolean;
+  describedBy: string;
+  setValue: (id: string, value: unknown) => void;
+}) {
+  const parts = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+  const lat = typeof parts.lat === 'string' ? parts.lat : '';
+  const lng = typeof parts.lng === 'string' ? parts.lng : '';
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  const write = (next: Record<string, unknown>) =>
+    setValue(field.id, { lat, lng, ...next });
+
+  const locate = () => {
+    if (!('geolocation' in navigator)) {
+      setProblem('This browser will not share a location — type the coordinates instead.');
+      return;
+    }
+    setBusy(true);
+    setProblem(null);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setBusy(false);
+        setValue(field.id, {
+          lat: position.coords.latitude.toFixed(6),
+          lng: position.coords.longitude.toFixed(6),
+          accuracy: String(Math.round(position.coords.accuracy)),
+        });
+      },
+      () => {
+        setBusy(false);
+        setProblem('The location was not shared — type the coordinates instead.');
+      },
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  };
+
+  return (
+    <div className="yb-form-geo" aria-describedby={describedBy || undefined} aria-invalid={error || undefined}>
+      <div className="yb-form-geo-parts">
+        <label className="yb-form-geo-part">
+          <span>Latitude</span>
+          <input
+            id={`${field.id}-lat`}
+            data-control={field.id}
+            type="text"
+            inputMode="decimal"
+            value={lat}
+            placeholder="-90 to 90"
+            onChange={(event) => write({ lat: event.target.value })}
+          />
+        </label>
+        <label className="yb-form-geo-part">
+          <span>Longitude</span>
+          <input
+            id={field.id}
+            name={field.id}
+            type="text"
+            inputMode="decimal"
+            value={lng}
+            placeholder="-180 to 180"
+            onChange={(event) => write({ lng: event.target.value })}
+          />
+        </label>
+      </div>
+      <button type="button" className="yb-form-geo-locate" onClick={locate} disabled={busy}>
+        {busy ? 'Finding…' : 'Use my location'}
+      </button>
+      {problem && (
+        <p className="yb-form-error" role="alert">
+          {problem}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function DecisionControl({
+  field,
+  value,
+  setValue,
+}: {
+  field: FormFieldDef;
+  value: unknown;
+  setValue: (id: string, value: unknown) => void;
+}) {
+  const parts = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+  const chosen = typeof parts.value === 'string' ? parts.value : '';
+  const reason = typeof parts.reason === 'string' ? parts.reason : '';
+  const approve = field.decision?.approve || 'Approve';
+  const reject = field.decision?.reject || 'Reject';
+
+  return (
+    <div className="yb-form-decision" data-control={field.id} tabIndex={-1}>
+      <div className="yb-form-decision-buttons" role="radiogroup" aria-label={field.label}>
+        {(
+          [
+            { value: 'approve', label: approve },
+            { value: 'reject', label: reject },
+          ] as const
+        ).map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            className={chosen === option.value ? 'yb-form-decision-btn on' : 'yb-form-decision-btn'}
+            role="radio"
+            aria-checked={chosen === option.value}
+            onClick={() => setValue(field.id, { value: option.value, reason })}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      {field.decision?.ask_reason && (
+        <textarea
+          rows={2}
+          className="yb-form-decision-reason"
+          aria-label="Reason for this decision"
+          placeholder="Reason (required)"
+          value={reason}
+          maxLength={2000}
+          onChange={(event) => setValue(field.id, { value: chosen, reason: event.target.value })}
+        />
+      )}
+    </div>
+  );
 }
 
 /**
