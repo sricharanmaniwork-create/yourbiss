@@ -81,7 +81,8 @@ export default async function ContactDetailPage({ params }: { params: Promise<Pa
           </ButtonLink>
           {canAdmin && (
             <DeleteButton
-              action={() => deleteCrmContact(contact.id)}
+              action={deleteCrmContact}
+              id={contact.id}
               redirectTo="/app/crm/contacts"
               title={`Delete ${contact.name}?`}
               body="Their notes, calls and tasks go with them, and any deal they were the only name on loses them. Deleting a customer is not something a Tuesday afternoon click should do, which is why only an owner or admin can."

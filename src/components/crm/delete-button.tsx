@@ -11,15 +11,21 @@ import type { ActionState } from '@/lib/types';
  * the row. Deleting a contact takes their history with it (the activities cascade),
  * and deleting a stage is refused by the database when a deal still sits on it — so
  * the sentence here is the only warning a person gets before that answer arrives.
+ *
+ * It takes the Server Action and the row it names rather than a prepared call, because
+ * a function written in a Server Component cannot be sent to the browser at all: React
+ * refuses the prop and production shows only minified error #441 for the whole page.
  */
 export function DeleteButton({
   action,
+  id,
   redirectTo,
   title,
   body,
   label = 'Delete',
 }: {
-  action: () => Promise<ActionState>;
+  action: (id: string) => Promise<ActionState>;
+  id: string;
   redirectTo: string;
   title: string;
   body: string;
@@ -48,7 +54,7 @@ export function DeleteButton({
               loading={pending}
               onClick={() =>
                 void run(async () => {
-                  const result = await action();
+                  const result = await action(id);
                   if (result.ok) {
                     setOpen(false);
                     router.push(redirectTo);

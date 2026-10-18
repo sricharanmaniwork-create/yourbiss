@@ -79,7 +79,8 @@ export default async function LeadDetailPage({ params }: { params: Promise<Param
           )}
           {canAdmin && (
             <DeleteButton
-              action={() => deleteCrmLead(lead.id)}
+              action={deleteCrmLead}
+              id={lead.id}
               redirectTo="/app/crm/leads"
               title={`Delete the lead “${lead.name}”?`}
               body="Their history goes with them. A lead that was already converted keeps the contact it made — deleting the lead does not delete the customer."

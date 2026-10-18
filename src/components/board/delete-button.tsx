@@ -13,16 +13,22 @@ import type { ActionState } from '@/lib/types';
  * database while it still holds cards. Both answers are sentences written in 0014 for the
  * person standing here, so this dialog asks once, then prints whatever the database said
  * rather than a second opinion of its own.
+ *
+ * It takes the Server Action and the row it names rather than a prepared call, because
+ * a function written in a Server Component cannot be sent to the browser at all: React
+ * refuses the prop and production shows only minified error #441 for the whole page.
  */
 export function DeleteButton({
   action,
+  id,
   redirectTo,
   title,
   body,
   label = 'Delete',
   variant = 'danger',
 }: {
-  action: () => Promise<ActionState>;
+  action: (id: string) => Promise<ActionState>;
+  id: string;
   redirectTo: string;
   title: string;
   body: string;
@@ -52,7 +58,7 @@ export function DeleteButton({
               loading={pending}
               onClick={() =>
                 void run(async () => {
-                  const result = await action();
+                  const result = await action(id);
                   if (result.ok) {
                     setOpen(false);
                     router.push(redirectTo);

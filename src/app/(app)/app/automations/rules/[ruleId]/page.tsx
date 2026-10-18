@@ -180,7 +180,8 @@ export default async function AutomationRulePage({ params }: { params: Promise<P
               <CardHeader title="Remove this rule" description="Only an owner or admin can, and only once it is switched off." />
               <CardBody>
                 <DeleteButton
-                  action={() => deleteAutomationRule(rule.id)}
+                  action={deleteAutomationRule}
+                  id={rule.id}
                   redirectTo="/app/automations/rules"
                   title={`Remove “${rule.name}”?`}
                   body="Its runs go with it, so the log will stop saying what this rule decided. Events it already answered stay answered: an order keeps its letter and a CRM entry keeps its note."

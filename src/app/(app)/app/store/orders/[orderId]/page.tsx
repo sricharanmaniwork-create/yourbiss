@@ -95,7 +95,8 @@ export default async function OrderDetailPage({ params }: { params: Promise<Para
           />
           {canAdmin && order.status === 'placed' && (
             <DeleteButton
-              action={() => deleteStoreOrder(order.id)}
+              action={deleteStoreOrder}
+              id={order.id}
               redirectTo="/app/store/orders"
               title={`Delete ${order.number}?`}
               body="Only an order nobody has confirmed can be erased, because nothing has moved on its account yet. Anything else stays: a cancelled order is a record that a person asked, and deleting it would leave the shelf with an entry no document explains."

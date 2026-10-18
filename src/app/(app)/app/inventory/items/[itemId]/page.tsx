@@ -77,12 +77,13 @@ export default async function ItemDetailPage({ params }: { params: Promise<Param
           <ArchiveToggle
             status={item.status}
             subject={item.name}
-            archive={() => setInvItemStatus(item.id, 'archived')}
-            restore={() => setInvItemStatus(item.id, 'active')}
+            id={item.id}
+            setStatus={setInvItemStatus}
           />
           {canAdmin && (
             <DeleteButton
-              action={() => deleteInvItem(item.id)}
+              action={deleteInvItem}
+              id={item.id}
               redirectTo="/app/inventory/items"
               title={`Delete ${item.name}?`}
               body="The database will refuse this while the item has stock history or appears on a purchase order, and it is right to: those are records of things that happened. Archiving takes it out of the lists and keeps everything."

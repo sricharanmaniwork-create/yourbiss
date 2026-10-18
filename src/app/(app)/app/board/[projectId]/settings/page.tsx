@@ -98,7 +98,8 @@ export default async function BoardSettingsPage({ params }: { params: Promise<Pa
               <CardHeader title="Deleting this board" description="Goes with its lanes and every card on them." />
               <CardBody>
                 <DeleteButton
-                  action={() => deleteBoard(board.id)}
+                  action={deleteBoard}
+                  id={board.id}
                   redirectTo="/app/board"
                   title={`Delete “${board.name}”?`}
                   body={`${cards.length} card(s) across ${lanes.length} lane(s) go with it. This cannot be undone, and an Automations rule that watches this board will simply stop finding events to act on.`}

@@ -103,7 +103,8 @@ export default async function DealDetailPage({ params }: { params: Promise<Param
           )}
           {canAdmin && (
             <DeleteButton
-              action={() => deleteCrmDeal(deal.id)}
+              action={deleteCrmDeal}
+              id={deal.id}
               redirectTo="/app/crm/deals"
               title={`Delete “${deal.title}”?`}
               body="The deal leaves the board and its value leaves the totals. Its history is deleted with it; the contact and the lead it was named on stay, because they are the relationship and not the sale."

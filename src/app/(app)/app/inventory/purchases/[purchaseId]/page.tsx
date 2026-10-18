@@ -95,7 +95,8 @@ export default async function PurchaseDetailPage({ params }: { params: Promise<P
           />
           {canAdmin && (
             <DeleteButton
-              action={() => deleteInvPurchase(purchase.id)}
+              action={deleteInvPurchase}
+              id={purchase.id}
               redirectTo="/app/inventory/purchases"
               title={`Delete ${purchase.number}?`}
               body="An order with goods received on it cannot be deleted, and should not be: those movements are the reason the shelf holds what it holds. Cancel it instead, and the history stays readable."

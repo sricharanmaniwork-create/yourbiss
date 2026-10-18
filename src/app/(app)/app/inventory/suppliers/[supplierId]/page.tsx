@@ -78,12 +78,13 @@ export default async function SupplierDetailPage({ params }: { params: Promise<P
           <ArchiveToggle
             status={supplier.status}
             subject={supplier.name}
-            archive={() => setInvSupplierStatus(supplier.id, 'archived')}
-            restore={() => setInvSupplierStatus(supplier.id, 'active')}
+            id={supplier.id}
+            setStatus={setInvSupplierStatus}
           />
           {canAdmin && (
             <DeleteButton
-              action={() => deleteInvSupplier(supplier.id)}
+              action={deleteInvSupplier}
+              id={supplier.id}
               redirectTo="/app/inventory/suppliers"
               title={`Delete ${supplier.name}?`}
               body="Any purchase order that names them has to be deleted first, and one that has received goods cannot be deleted at all. Archiving keeps their orders and the stock those orders produced intact, and is almost always what is meant."
