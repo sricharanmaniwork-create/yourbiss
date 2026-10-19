@@ -6,6 +6,8 @@ import { checkAnswers } from '@/lib/forms/answers';
 import { answerSummary, orderedFields, pagesOf, type FormPage } from '@/lib/forms/definition';
 import {
   answerCeiling,
+  calculateOf,
+  calculationText,
   collectsMany,
   COMPOSITE_PART_MAX_CHARS,
   compositeParts,
@@ -35,6 +37,10 @@ import {
  * A form built with page breaks is answered one page at a time: Next checks only the
  * questions on screen, Submit checks the whole thing and takes the visitor back to
  * whichever page holds the first answer that missed.
+ *
+ * A Calculate field is drawn from the answers as they stand and never typed into, so the
+ * number a visitor reads is the number the route will store — both sides call the same
+ * `calculateOf`, and what the browser posts for that key is dropped.
  */
 
 export interface PublicFormProps {
@@ -99,6 +105,17 @@ export function PublicForm({ formId, title, description, fields, settings, theme
     () => new Set(fields.filter((field) => fieldIsRequired(field, answers, fields)).map((field) => field.id)),
     [fields, answers],
   );
+
+  // A calculated answer is never kept in `answers` — that would be the browser deciding
+  // what the total is. It is worked out from what has been typed, for the box and for the
+  // review page, and the server works it out again from the answers it accepted.
+  const readOut = useMemo(() => {
+    const every: Answers = { ...answers };
+    for (const field of fields) {
+      if (field.type === 'formula') every[field.id] = calculateOf(field, answers);
+    }
+    return every;
+  }, [fields, answers]);
 
   // The pages the builder cut this form into, with the questions logic has hidden
   // removed. A page holding nothing is not a page a visitor should be walked through.
@@ -284,7 +301,7 @@ export function PublicForm({ formId, title, description, fields, settings, theme
         {reviewing ? (
           <Review
             steps={steps}
-            answers={answers}
+            answers={readOut}
             onEdit={(index) => {
               setReviewing(false);
               setErrors({});
@@ -301,7 +318,7 @@ export function PublicForm({ formId, title, description, fields, settings, theme
                   key={field.id}
                   field={field}
                   required={requiredIds.has(field.id)}
-                  value={answers[field.id]}
+                  value={readOut[field.id]}
                   error={errors[field.id]}
                   setValue={setValue}
                 />
@@ -942,6 +959,25 @@ function Control({
       return (
         <SignaturePad field={field} error={error} describedBy={describedBy} setValue={setValue} />
       );
+
+    case 'formula': {
+      // `output` is read out when it changes, which is the point of a total. A sum with
+      // nothing to write — a division by a figure that is zero — shows a dash rather than
+      // a number that would look like an answer.
+      const shown = calculationText(field, value);
+      return (
+        <output
+          id={field.id}
+          className="yb-form-formula"
+          data-control={field.id}
+          data-invalid={error || undefined}
+          tabIndex={-1}
+          aria-describedby={describedBy || undefined}
+        >
+          {shown === '' ? '—' : shown}
+        </output>
+      );
+    }
 
     case 'geolocation':
       return <LocationControl field={field} value={value} error={error} describedBy={describedBy} setValue={setValue} />;

@@ -346,6 +346,30 @@
   border-color: #f04438;
 }
 
+/* A calculated answer is the shape of a box and obviously not one to write in. */
+.yb-form-formula {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px;
+  font: inherit;
+  font-weight: 600;
+  color: #111827;
+  background: #f6f7f9;
+  border: 1px dashed #d5dae2;
+  border-radius: var(--yb-radius);
+}
+
+.yb-form-formula:focus-visible {
+  outline: none;
+  border-color: var(--yb-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--yb-accent) 22%, transparent);
+}
+
+.yb-form-formula[data-invalid='true'] {
+  border-color: #f04438;
+}
+
 .yb-form-choices {
   display: grid;
   gap: 8px;

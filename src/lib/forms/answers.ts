@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   activeRule,
+  calculateOf,
   choiceValues,
   collectsMany,
   COMPOSITE_PART_MAX_CHARS,
@@ -34,6 +35,9 @@ import { orderedFields } from './definition';
  * address typed above. Shape belongs to zod, where each kind states what it accepts;
  * rules belong to `grammarError`, because several of them have to look at another
  * field's answer or at today's date, and zod refinements cannot reach either.
+ *
+ * A third thing happens after both: the answers a Calculate field is built from are all
+ * settled, so its own answer is worked out here. Nothing on the page is trusted with it.
  */
 
 /** Guards against a payload stuffed with unrelated keys. */
@@ -74,7 +78,9 @@ export function checkAnswers(
   const asking = page === undefined ? visible : visible.filter((field) => page.has(field.id));
 
   for (const field of asking) {
-    if (isPresentational(field.type)) continue;
+    // A Calculate field is asked for nothing: nobody types into it, and its answer is
+    // written below, from the answers that passed their own checks.
+    if (isPresentational(field.type) || field.type === 'formula') continue;
     if (field.type === 'email' && !emailFieldId) emailFieldId = field.id;
 
     const raw = answers[field.id];
@@ -109,7 +115,9 @@ export function checkAnswers(
   // left, so rules read every visible answer.
   const context: Record<string, unknown> = {};
   for (const field of visible) {
-    if (isPresentational(field.type)) continue;
+    // A calculated answer is written out below from the numbers here, so it is never read
+    // into them — that would let whatever the browser sent for that key go into a sum.
+    if (isPresentational(field.type) || field.type === 'formula') continue;
     if (field.id in values) {
       context[field.id] = values[field.id];
       continue;
@@ -129,6 +137,20 @@ export function checkAnswers(
     if (!failed) continue;
     delete values[field.id];
     errors[field.id] = messageFor(field, failed);
+  }
+
+  // The last thing done to a response is writing out its calculated answers, from the
+  // numbers above that were accepted. A sum with no answer to write down — a division by
+  // a figure that came out zero — is refused on that question rather than stored as a
+  // guess, and the visitor is pointed at it to change the numbers it reads.
+  for (const field of asking) {
+    if (field.type !== 'formula') continue;
+    const answer = calculateOf(field, context);
+    if (answer === null) {
+      errors[field.id] = messageFor(field, `“${field.label || 'This field'}” cannot be worked out from these answers`);
+      continue;
+    }
+    values[field.id] = answer;
   }
 
   return { values, errors, emailFieldId };

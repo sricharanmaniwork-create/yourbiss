@@ -1,4 +1,5 @@
 import {
+  calculationText,
   choiceLabel,
   compositeText,
   fieldIsVisible,
@@ -144,6 +145,9 @@ export function answerValue(field: FormFieldDef, raw: unknown): string {
   if (text === '') return '';
 
   switch (field.type) {
+    case 'formula':
+      return calculationText(field, raw);
+
     case 'rating':
       return `${text} / ${field.rating?.max ?? 5}`;
     case 'rupees':

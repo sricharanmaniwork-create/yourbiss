@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from 'react';
 import { Copy, GripVertical, Trash } from 'lucide-react';
 import type { ActionState } from '@/lib/types';
 import type { FieldKind, FieldLogic, FormFieldDef, LogicOperator, MatrixAxes, RatingSymbol } from '@/lib/forms/types';
+import { FORMULA_MAX_CHARS, formulaProblem, formulaReferences } from '@/lib/forms/formula';
 import {
   ADDRESS_PARTS,
   ADDRESS_PARTS_DEFAULT,
@@ -21,6 +22,7 @@ import {
   choiceValues,
   collectsMany,
   compositeParts,
+  isCalculableAnswer,
   isComposite,
   isPresentational,
   logicOperatorFits,
@@ -54,7 +56,7 @@ const GROUPS: { label: string; kinds: FieldKind[] }[] = [
     label: 'Questions',
     kinds: [
       'text', 'textarea', 'name', 'email', 'phone', 'url', 'number', 'rupees', 'currency', 'date', 'datetime',
-      'monthyear', 'time', 'rating', 'slider', 'signature', 'geolocation',
+      'monthyear', 'time', 'rating', 'slider', 'formula', 'signature', 'geolocation',
     ],
   },
   {
@@ -468,6 +470,13 @@ function Mock({ field }: { field: FormFieldDef }) {
     case 'signature':
       return <div className="mt-1.5 h-16 rounded-md border border-dashed border-line bg-white" />;
 
+    case 'formula':
+      return (
+        <div className="mt-1.5 flex h-8 items-center overflow-hidden rounded-md border border-dashed border-line bg-canvas px-2 font-mono text-[11.5px] text-muted">
+          {field.formula?.trim() || 'Nothing calculated yet'}
+        </div>
+      );
+
     case 'geolocation':
       return (
         <div className="mt-1.5 grid grid-cols-2 gap-1.5">
@@ -534,11 +543,15 @@ function FieldInspector({
 }) {
   const ids = useFieldId('insp');
   const collecting = !isPresentational(field.type);
+  // The one question whose answer the form writes. It is collected — the number is
+  // stored and exported — but nobody types into it, so every box that shapes what a
+  // visitor writes is switched off for it.
+  const computed = field.type === 'formula';
   const choiceBearing = OPTION_BEARING.includes(field.type);
   const composite = isComposite(field.type);
   const textish = ['text', 'textarea'].includes(field.type);
   const numeric = ['number', 'rupees', 'currency'].includes(field.type);
-  const affixable = textish || numeric;
+  const affixable = textish || numeric || computed;
   const defaultable = collecting && !composite && DEFAULTABLE.includes(field.type);
   const v = field.validation ?? {};
   const labelWord =
@@ -559,13 +572,21 @@ function FieldInspector({
     onChange({ validation: next as Rules });
   };
 
-  const askable = others.filter((other) => !isPresentational(other.type));
+  // A rule reads an answer somebody typed. A calculated one does not exist until every
+  // typed answer has been read, so it is not offered as a source — Publish refuses it too.
+  const askable = others.filter((other) => !isPresentational(other.type) && other.type !== 'formula');
+  const summable = others.filter((other) => isCalculableAnswer(other.type));
 
   return (
     <div className="grid gap-3 px-4 py-4">
       <header>
         <p className="text-[13.5px] font-semibold text-ink">{FIELD_KIND_LABELS[field.type]}</p>
-        {collecting ? (
+        {computed ? (
+          <p className="text-[12px] text-muted">
+            Nobody types into this. Its answer is worked out from the questions below it and stored under{' '}
+            <span className="font-mono text-[11px]">{field.id}</span>.
+          </p>
+        ) : collecting ? (
           <p className="text-[12px] text-muted">
             Answers are stored under <span className="font-mono text-[11px]">{field.id}</span>.
           </p>
@@ -601,7 +622,7 @@ function FieldInspector({
         </Field>
       )}
 
-      {collecting && !composite && (
+      {collecting && !composite && !computed && (
         <Field label="Placeholder" htmlFor={`${ids}-placeholder`} hint="Vanishes as soon as the visitor types.">
           <Input
             id={`${ids}-placeholder`}
@@ -613,7 +634,7 @@ function FieldInspector({
         </Field>
       )}
 
-      {collecting && (
+      {collecting && !computed && (
         <div className="flex items-center justify-between gap-3 rounded-md border border-line px-3 py-2.5">
           <span className="text-[12.5px] font-medium text-ink">Required</span>
           <Switch checked={field.required === true} disabled={!canManage} onChange={(checked) => onChange({ required: checked })} label="Required" />
@@ -632,6 +653,10 @@ function FieldInspector({
             <option value="half">Half row</option>
           </Select>
         </Field>
+      )}
+
+      {computed && (
+        <FormulaEditor field={field} sources={summable} canManage={canManage} onChange={onChange} idPrefix={ids} />
       )}
 
       {choiceBearing && (
@@ -1184,6 +1209,101 @@ function RulesEditor({
             ))}
           </Select>
         </Field>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The sum a Calculate field works its answer out from.
+ *
+ * The box is free text, read by `formula.ts` — the same code the visitor&apos;s page and
+ * the submit route run — so what is written here is exactly what will be worked out
+ * there. Under it every question the sum reads is named back, because a field deleted or
+ * turned into something that is not a number is worth seeing while the form is open
+ * rather than only when Publish refuses it.
+ */
+function FormulaEditor({
+  field,
+  sources,
+  canManage,
+  onChange,
+  idPrefix,
+}: {
+  field: FormFieldDef;
+  sources: FormFieldDef[];
+  canManage: boolean;
+  onChange: (changes: Partial<FormFieldDef>) => void;
+  idPrefix: string;
+}) {
+  const expression = field.formula ?? '';
+  const written = expression.trim();
+  const problem = written === '' ? null : formulaProblem(expression);
+  const reads = formulaReferences(expression);
+  const byId = new Map(sources.map((source) => [source.id, source]));
+
+  return (
+    <div className="grid gap-2">
+      <Field
+        label="Calculation"
+        htmlFor={`${idPrefix}-formula`}
+        hint="Numbers, other questions inside braces, and + - * / . Brackets group a part of the sum."
+      >
+        <Textarea
+          id={`${idPrefix}-formula`}
+          rows={2}
+          value={expression}
+          maxLength={FORMULA_MAX_CHARS}
+          spellCheck={false}
+          placeholder="{quantity} * {rate}"
+          disabled={!canManage}
+          onChange={(event) => onChange({ formula: event.target.value })}
+        />
+      </Field>
+
+      <Field label="Add a question" htmlFor={`${idPrefix}-addref`} hint="Added to whatever is written above.">
+        <Select
+          id={`${idPrefix}-addref`}
+          value=""
+          disabled={!canManage || sources.length === 0 || expression.length >= FORMULA_MAX_CHARS}
+          onChange={(event) => {
+            const id = event.target.value;
+            if (id === '') return;
+            onChange({ formula: written === '' ? `{${id}}` : `${written} + {${id}}` });
+          }}
+        >
+          <option value="">{sources.length === 0 ? 'No number question to add' : 'Choose a question…'}</option>
+          {sources.map((source) => (
+            <option key={source.id} value={source.id}>
+              {source.label || FIELD_KIND_LABELS[source.type]}
+            </option>
+          ))}
+        </Select>
+      </Field>
+
+      {written === '' && (
+        <p className="rounded-md border border-dashed border-line px-3 py-2 text-[12px] text-muted">
+          Publish needs a sum here, such as a quantity multiplied by a rate.
+        </p>
+      )}
+      {problem && (
+        <p className="text-[12px] text-[#b42318]">This calculation {problem}. Publish will refuse it until it reads as a sum.</p>
+      )}
+
+      {reads.length > 0 && (
+        <ul className="grid gap-1">
+          {reads.map((id) => {
+            const source = byId.get(id);
+            return (
+              <li key={id} className="flex items-center justify-between gap-2 text-[11.5px]">
+                <span className="font-mono text-[11px] text-muted">{`{${id}}`}</span>
+                <span className={source ? 'text-ink-soft' : 'text-[#b42318]'}>
+                  {source ? source.label || FIELD_KIND_LABELS[source.type] : 'Not a number question of this form'}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
       )}
     </div>
   );

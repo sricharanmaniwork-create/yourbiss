@@ -1,4 +1,11 @@
 import { z } from 'zod';
+import {
+  evaluateFormula,
+  FORMULA_MAX_CHARS,
+  formulaProblem,
+  formulaReferences,
+  numberAnswer,
+} from './formula';
 
 /**
  * Form field model. A form's `fields` array is the single document both the
@@ -8,6 +15,10 @@ import { z } from 'zod';
  * There is deliberately no file-upload field yet: an attachment needs a storage
  * bucket, a size and type limit, and a retention rule before an answer can hold
  * one.
+ *
+ * `formula` is the one kind whose answer the form writes itself. Nobody types into it, and
+ * the number stored with a response is worked out on the server from the answers that
+ * passed their own checks — whatever the browser sends under that key is dropped.
  *
  * The kinds below are chosen from what Zoho's own field registry can express, keeping
  * the ones this stack can serve without a vendor. Two of their types are intentionally
@@ -37,6 +48,7 @@ export type FieldKind =
   | 'yes_or_no'
   | 'rating'
   | 'slider'
+  | 'formula'
   | 'signature'
   | 'geolocation'
   | 'url'
@@ -218,7 +230,7 @@ const LENGTH_KINDS: FieldKind[] = ['text', 'textarea', 'email', 'phone', 'url'];
 const WORD_KINDS: FieldKind[] = ['text', 'textarea'];
 const PATTERN_KINDS: FieldKind[] = ['text', 'textarea'];
 const TEXT_RULE_KINDS: FieldKind[] = ['text', 'textarea'];
-const DECIMAL_KINDS: FieldKind[] = ['number', 'rupees', 'currency'];
+const DECIMAL_KINDS: FieldKind[] = ['number', 'rupees', 'currency', 'formula'];
 const RANGE_KINDS: FieldKind[] = ['number', 'rupees', 'currency', 'slider'];
 const DAY_KINDS: FieldKind[] = ['date', 'datetime', 'monthyear'];
 const MANY_CHOICE_KINDS: FieldKind[] = ['checkbox', 'multiselect', 'image_choice'];
@@ -289,6 +301,15 @@ export type LogicOperator =
 
 /** Kinds whose answer is a number, so a rule can be told to compare it with one. */
 const NUMERIC_SOURCES: readonly FieldKind[] = ['number', 'rupees', 'currency', 'rating', 'slider'];
+
+/**
+ * Whether a question of this kind can go into a sum. The same list a `gt` or `lt` rule
+ * may read, and a Calculate field's answer is deliberately not in it: one sum working
+ * out another would have to be answered in order, and a form is not a spreadsheet.
+ */
+export function isCalculableAnswer(kind: FieldKind): boolean {
+  return NUMERIC_SOURCES.includes(kind);
+}
 
 /** Kinds whose answer is a day or a month, so a rule can be told before or after one. */
 const DAY_SOURCES: readonly FieldKind[] = ['date', 'datetime', 'monthyear', 'time'];
@@ -410,6 +431,12 @@ export interface FormFieldDef {
   suffix?: string;
   /** Filled in before the visitor touches the field, and stored as their answer. */
   default_value?: string;
+  /**
+   * `formula` only: the sum its answer is worked out from — numbers, other questions in
+   * braces, and `+ - * / ( )`. `formula.ts` is what reads it, in the browser and on the
+   * server alike.
+   */
+  formula?: string;
   /** `image_choice` only: pick one, or pick as many as you like. */
   choice_style?: 'radio' | 'checkbox';
   /** A dropdown long enough to need a search box inside it. */
@@ -574,7 +601,7 @@ export const formFieldSchema: z.ZodType<FormFieldDef> = z
       'text', 'textarea', 'email', 'phone', 'number', 'rupees', 'currency', 'date', 'datetime', 'monthyear', 'time',
       'select', 'radio', 'checkbox', 'checkbox_single', 'multiselect', 'image_choice', 'matrix', 'decision',
       'yes_or_no', 'rating', 'slider', 'signature', 'geolocation', 'url', 'name', 'address',
-      'section', 'heading', 'note', 'divider', 'spacer', 'page_break',
+      'section', 'heading', 'note', 'divider', 'spacer', 'page_break', 'formula',
     ]),
     label: z.string().max(200),
     placeholder: z.string().max(200).optional(),
@@ -633,6 +660,10 @@ export const formFieldSchema: z.ZodType<FormFieldDef> = z
     prefix: z.string().max(40).optional(),
     suffix: z.string().max(40).optional(),
     default_value: z.string().max(400).optional(),
+    // Only that it is text of a sane size. Whether the sum *reads* as a sum is
+    // `formulaProblem`, run at Publish, because a half-typed expression is a draft a
+    // builder is still working on rather than a shape the field id could not hold.
+    formula: z.string().max(FORMULA_MAX_CHARS, 'That calculation is too long').optional(),
     choice_style: z.enum(['radio', 'checkbox']).optional(),
     searchable: z.boolean().optional(),
     inline_choices: z.boolean().optional(),
@@ -817,6 +848,11 @@ export function validateFieldSemantics(fields: FormFieldDef[]): string | null {
       }
     }
 
+    if (field.type === 'formula') {
+      const calculation = validateCalculation(field, fields);
+      if (calculation) return calculation;
+    }
+
     const ruleError = validateRules(field, fields);
     if (ruleError) return ruleError;
 
@@ -920,6 +956,32 @@ function validateRules(field: FormFieldDef, fields: FormFieldDef[]): string | nu
 }
 
 /**
+ * A Calculate field is the one question whose answer the form writes itself, so it is
+ * held to before Publish: the sum has to read as arithmetic, and every question inside it
+ * has to be a number somebody else types. Reading itself, another sum or a question that
+ * collects nothing would leave the answer with nothing to work from, or two sums waiting
+ * on each other.
+ */
+function validateCalculation(field: FormFieldDef, fields: FormFieldDef[]): string | null {
+  const named = `"${field.label}"`;
+  const problem = formulaProblem(field.formula ?? '');
+  if (problem) return `${named} ${problem}`;
+  if (field.required === true) return `${named} is worked out by the form, so it cannot be compulsory`;
+  if (field.default_value?.trim()) return `${named} is worked out by the form, so it cannot have a default answer`;
+
+  for (const id of formulaReferences(field.formula ?? '')) {
+    const source = fields.find((candidate) => candidate.id === id);
+    if (!source) return `${named} reads {${id}}, which is not a question in this form`;
+    if (source.id === field.id) return `${named} cannot read its own answer`;
+    if (source.type === 'formula') return `${named} reads “${source.label}”, which is itself worked out from these answers`;
+    if (isPresentational(source.type)) return `${named} reads “${source.label}”, which collects no answer`;
+    if (!isCalculableAnswer(source.type)) return `${named} reads “${source.label}”, which is not a number`;
+  }
+
+  return null;
+}
+
+/**
  * A rule is only worth publishing when the answer it reads can be read: the question it
  * points at has to exist and collect an answer, the comparison has to be one that kind
  * of answer takes, and the rule has to have something to compare against. A rule with
@@ -940,6 +1002,9 @@ function validateLogic(field: FormFieldDef, fields: FormFieldDef[]): string | nu
     if (!source) return `${named} has logic referring to a field that does not exist`;
     if (source.id === field.id) return `${named} cannot be controlled by an answer to itself`;
     if (isPresentational(source.type)) return `${named} has logic referring to a field that collects no answer`;
+    // A rule is judged before any answer is checked, and a calculated answer only exists
+    // after the checks have run, so pointing at one would read what the browser sent.
+    if (source.type === 'formula') return `${named} has logic referring to “${source.label}”, which is worked out after the answers are read`;
 
     if (!logicOperatorFits(source.type, condition.operator)) {
       return `${named} asks “${source.label}” whether it ${LOGIC_OPERATOR_LABELS[condition.operator]} — that kind of question cannot be asked that way`;
@@ -1109,6 +1174,39 @@ export function compositeText(field: FormFieldDef, raw: unknown): string {
   return parts.join(field.type === 'name' ? ' ' : ', ');
 }
 
+/**
+ * The answer a Calculate field works out for these answers, rounded as its own rule asks.
+ *
+ * Both sides call this — the page a visitor is filling in and the route storing the
+ * response — so the number on the screen and the number in the row cannot be two numbers.
+ * A sum is read from the answers as they stand, which is why a question nobody answered
+ * counts as zero, and `null` is a sum with no answer to write down.
+ */
+export function calculateOf(field: FormFieldDef, answers: Record<string, unknown>): number | null {
+  if (field.type !== 'formula') return null;
+  const expression = field.formula?.trim() ?? '';
+  if (expression === '') return null;
+  const value = evaluateFormula(expression, (id) => numberAnswer(answers[id]));
+  if (value === null) return null;
+  const decimals = activeRule(field, 'decimals');
+  if (decimals === undefined) return Number.isFinite(value) ? value : null;
+  const factor = 10 ** decimals;
+  const rounded = Math.round(value * factor) / factor;
+  return Number.isFinite(rounded) ? rounded : null;
+}
+
+/** A calculated answer written down: its rounding, its unit, the same words on the page and in an export. */
+export function calculationText(field: FormFieldDef, value: unknown): string {
+  // Nothing answered is not zero answered — a sum that could not be worked out, or a
+  // response saved before this question was in the form, exports as an empty cell.
+  if (value === null || value === undefined || value === '') return '';
+  const number = typeof value === 'number' ? value : Number(String(value).trim());
+  if (!Number.isFinite(number)) return '';
+  const decimals = activeRule(field, 'decimals');
+  const digits = decimals === undefined ? String(number) : number.toFixed(decimals);
+  return `${field.prefix ?? ''}${digits}${field.suffix ? ` ${field.suffix}` : ''}`;
+}
+
 export const FIELD_KIND_LABELS: Record<FieldKind, string> = {
   text: 'Short text',
   textarea: 'Long text',
@@ -1132,6 +1230,7 @@ export const FIELD_KIND_LABELS: Record<FieldKind, string> = {
   yes_or_no: 'Yes / No',
   rating: 'Rating',
   slider: 'Slider',
+  formula: 'Calculate',
   signature: 'Signature',
   geolocation: 'Location',
   url: 'Website',
@@ -1175,6 +1274,7 @@ export function blankField(type: FieldKind, index: number): FormFieldDef {
     : type === 'multiselect' ? 'Choose all that apply'
     : type === 'checkbox_single' ? 'I agree'
     : type === 'rating' ? 'How would you rate it?'
+    : type === 'formula' ? 'Total'
     : type === 'url' ? 'Website'
     : type === 'section' ? 'Section'
     : type === 'heading' ? 'A heading'
