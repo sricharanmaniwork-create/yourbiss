@@ -52,20 +52,28 @@ export interface AnswerCheck {
  * passed in rather than read from a clock because a "no past dates" rule judged by
  * the visitor's browser and by the server has to be judged against the same day, or
  * the same answer is accepted in one place and refused in the other.
+ *
+ * `page` is the set of questions a visitor is being asked right now, on a form that is
+ * answered a page at a time. Every field is still read for the rules and for whether a
+ * hidden question is hidden — a rule on page one can point at an answer on page three —
+ * but only the page in hand is required, checked or reported. Without it, pressing Next
+ * would tell somebody to fill in questions they have not reached.
  */
 export function checkAnswers(
   fields: FormFieldDef[],
   order: string[] | undefined,
   answers: Record<string, unknown>,
   today: string,
+  page?: Set<string>,
 ): AnswerCheck {
   const values: Record<string, unknown> = {};
   const errors: Record<string, string> = {};
   let emailFieldId: string | null = null;
 
-  const shown = orderedFields(fields, order).filter((field) => fieldIsVisible(field, answers, fields));
+  const visible = orderedFields(fields, order).filter((field) => fieldIsVisible(field, answers, fields));
+  const asking = page === undefined ? visible : visible.filter((field) => page.has(field.id));
 
-  for (const field of shown) {
+  for (const field of asking) {
     if (isPresentational(field.type)) continue;
     if (field.type === 'email' && !emailFieldId) emailFieldId = field.id;
 
@@ -96,11 +104,28 @@ export function checkAnswers(
   }
 
   // Rules run after every shape check, so one that compares two fields can read the
-  // other answer whether it came before or after this one in the form.
-  for (const field of shown) {
+  // other answer whether it came before or after this one in the form. On a page of a
+  // multi-page form that other answer may live on a page still to come or one already
+  // left, so rules read every visible answer.
+  const context: Record<string, unknown> = {};
+  for (const field of visible) {
+    if (isPresentational(field.type)) continue;
+    if (field.id in values) {
+      context[field.id] = values[field.id];
+      continue;
+    }
+    // On the page being asked, an answer that failed its shape check or was left blank
+    // is nothing a rule may lean on. On a page not in hand, the answer has not been
+    // checked at all this pass, so it is read as typed.
+    if (page === undefined || page.has(field.id)) continue;
+    const typed = answers[field.id];
+    if (typed !== undefined && !isEmptyAnswer(typed)) context[field.id] = typed;
+  }
+
+  for (const field of asking) {
     const value = values[field.id];
     if (value === undefined) continue;
-    const failed = grammarError(field, value, values, fields, today);
+    const failed = grammarError(field, value, context, fields, today);
     if (!failed) continue;
     delete values[field.id];
     errors[field.id] = messageFor(field, failed);

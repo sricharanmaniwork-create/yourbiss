@@ -61,7 +61,7 @@ const GROUPS: { label: string; kinds: FieldKind[] }[] = [
     label: 'Choices',
     kinds: ['select', 'radio', 'checkbox', 'multiselect', 'checkbox_single', 'image_choice', 'yes_or_no', 'decision', 'matrix'],
   },
-  { label: 'Layout', kinds: ['section', 'heading', 'note', 'divider', 'spacer'] },
+  { label: 'Layout', kinds: ['section', 'page_break', 'heading', 'note', 'divider', 'spacer'] },
 ];
 
 /** Kinds that can start with an answer already in the box. */
@@ -347,6 +347,15 @@ function Row({ field }: { field: FormFieldDef }) {
 
   if (field.type === 'divider') return <hr className="my-2 border-t border-line" />;
   if (field.type === 'spacer') return <div className="h-6 rounded bg-canvas" />;
+  if (field.type === 'page_break') {
+    return (
+      <p className="flex items-center gap-2 py-1 text-[11.5px] text-muted">
+        <span className="h-px flex-1 border-t border-dashed border-line-strong" />
+        {field.label.trim() === '' ? 'Page break' : `New page — ${field.label.trim()}`}
+        <span className="h-px flex-1 border-t border-dashed border-line-strong" />
+      </p>
+    );
+  }
   if (field.type === 'note') return <p className="text-[12.5px] leading-relaxed text-ink-soft">{field.label}</p>;
 
   if (field.type === 'section' || field.type === 'heading') {
@@ -532,7 +541,10 @@ function FieldInspector({
   const affixable = textish || numeric;
   const defaultable = collecting && !composite && DEFAULTABLE.includes(field.type);
   const v = field.validation ?? {};
-  const labelWord = ['section', 'heading', 'note'].includes(field.type) ? 'Text' : 'Label';
+  const labelWord =
+    field.type === 'page_break' ? 'Page title'
+    : ['section', 'heading', 'note'].includes(field.type) ? 'Text'
+    : 'Label';
 
   const setValidation = (changes: Partial<Rules>) => {
     const merged: Record<string, unknown> = { ...v, ...changes };
@@ -553,7 +565,17 @@ function FieldInspector({
     <div className="grid gap-3 px-4 py-4">
       <header>
         <p className="text-[13.5px] font-semibold text-ink">{FIELD_KIND_LABELS[field.type]}</p>
-        <p className="text-[12px] text-muted">Answers are stored under <span className="font-mono text-[11px]">{field.id}</span>.</p>
+        {collecting ? (
+          <p className="text-[12px] text-muted">
+            Answers are stored under <span className="font-mono text-[11px]">{field.id}</span>.
+          </p>
+        ) : (
+          <p className="text-[12px] text-muted">
+            {field.type === 'page_break'
+              ? 'The questions below this one are answered on a page of their own.'
+              : 'This shows on the form but collects no answer.'}
+          </p>
+        )}
       </header>
 
       <Field label={labelWord} htmlFor={`${ids}-label`}>

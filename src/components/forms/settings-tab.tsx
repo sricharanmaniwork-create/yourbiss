@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Plus, Trash } from 'lucide-react';
 import type { ActionState, FormPrivateRow } from '@/lib/types';
 import type { FormSettings, FormTheme } from '@/lib/forms/types';
+import { pagesOf } from '@/lib/forms/definition';
 import { deleteForm, saveFormDefinition, saveFormPrivates, setFormStatus } from '@/lib/actions/forms';
 import { Button, Checkbox, Field, FormStatus, Input, Modal, Select, Switch, Textarea, toast } from '@/components/ui';
 import { formatInZone, isValidSlug, slugify } from '@/lib/utils';
@@ -55,6 +56,7 @@ export function SettingsTab({
     JSON.stringify({ settings, theme }) !== JSON.stringify({ settings: form.settings, theme: form.theme });
 
   const badSlug = !isValidSlug(slug);
+  const pageCount = pagesOf(form.fields, settings.field_order).length;
   const discard = () => {
     setTitle(form.title);
     setSlug(form.slug);
@@ -205,6 +207,39 @@ export function SettingsTab({
                 disabled={!canManage}
                 label="One response per visitor"
                 onChange={(checked) => setSettings({ ...settings, one_per_visitor: checked })}
+              />
+            </div>
+
+            <div className="flex items-start justify-between gap-3 rounded-md border border-line px-3 py-2.5">
+              <div className="min-w-0">
+                <p className="text-[12.5px] font-medium text-ink">Show progress across pages</p>
+                <p className="text-[11.5px] leading-relaxed text-muted">
+                  A bar above the questions saying which page the visitor is on. It shows once the form is cut into
+                  pages with a page break.
+                </p>
+              </div>
+              <Switch
+                checked={settings.show_progress}
+                disabled={!canManage}
+                label="Show progress across pages"
+                onChange={(checked) => setSettings({ ...settings, show_progress: checked })}
+              />
+            </div>
+
+            <div className="flex items-start justify-between gap-3 rounded-md border border-line px-3 py-2.5">
+              <div className="min-w-0">
+                <p className="text-[12.5px] font-medium text-ink">Review answers before submitting</p>
+                <p className="text-[11.5px] leading-relaxed text-muted">
+                  The visitor reads through everything they typed, a page at a time, and can go back to any of them
+                  before sending.
+                  {pageCount < 2 ? ' Needs a page break in Build first.' : ''}
+                </p>
+              </div>
+              <Switch
+                checked={settings.review_page}
+                disabled={!canManage}
+                label="Review answers before submitting"
+                onChange={(checked) => setSettings({ ...settings, review_page: checked })}
               />
             </div>
           </div>

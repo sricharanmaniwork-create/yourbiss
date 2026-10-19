@@ -46,10 +46,17 @@ export type FieldKind =
   | 'heading'
   | 'note'
   | 'divider'
-  | 'spacer';
+  | 'spacer'
+  | 'page_break';
 
-/** Fields that render but never collect an answer. */
-export const PRESENTATIONAL: FieldKind[] = ['section', 'heading', 'note', 'divider', 'spacer'];
+/**
+ * Fields that render but never collect an answer.
+ *
+ * `page_break` is one of these because it is a place in the form, not a question: the
+ * answers a page holds are stored exactly as a single-page form stores them, and nothing
+ * is recorded for the break itself.
+ */
+export const PRESENTATIONAL: FieldKind[] = ['section', 'heading', 'note', 'divider', 'spacer', 'page_break'];
 
 export function isPresentational(kind: FieldKind): boolean {
   return PRESENTATIONAL.includes(kind);
@@ -567,7 +574,7 @@ export const formFieldSchema: z.ZodType<FormFieldDef> = z
       'text', 'textarea', 'email', 'phone', 'number', 'rupees', 'currency', 'date', 'datetime', 'monthyear', 'time',
       'select', 'radio', 'checkbox', 'checkbox_single', 'multiselect', 'image_choice', 'matrix', 'decision',
       'yes_or_no', 'rating', 'slider', 'signature', 'geolocation', 'url', 'name', 'address',
-      'section', 'heading', 'note', 'divider', 'spacer',
+      'section', 'heading', 'note', 'divider', 'spacer', 'page_break',
     ]),
     label: z.string().max(200),
     placeholder: z.string().max(200).optional(),
@@ -691,6 +698,10 @@ export interface FormSettings {
   one_per_visitor: boolean;
   close_at: string | null;
   field_order: string[];
+  /** Ask for the answers on every page to be read back before they are sent. */
+  review_page: boolean;
+  /** Draw how far through the pages a visitor is. */
+  show_progress: boolean;
 }
 
 export const FORM_SETTINGS_DEFAULT: FormSettings = {
@@ -700,6 +711,8 @@ export const FORM_SETTINGS_DEFAULT: FormSettings = {
   one_per_visitor: false,
   close_at: null,
   field_order: [],
+  review_page: false,
+  show_progress: true,
 };
 
 const urlOrEmpty = z
@@ -715,6 +728,8 @@ export const formSettingsSchema = z
     one_per_visitor: z.boolean().default(false),
     close_at: z.string().max(40).nullable().default(null),
     field_order: z.array(z.string().max(64)).max(200).default([]),
+    review_page: z.boolean().default(FORM_SETTINGS_DEFAULT.review_page),
+    show_progress: z.boolean().default(FORM_SETTINGS_DEFAULT.show_progress),
   })
   .passthrough();
 
@@ -1127,6 +1142,7 @@ export const FIELD_KIND_LABELS: Record<FieldKind, string> = {
   note: 'Help text',
   divider: 'Divider',
   spacer: 'Spacer',
+  page_break: 'Page break',
 };
 
 const KIND_LABEL_FALLBACK: Partial<Record<FieldKind, string>> = {
@@ -1163,7 +1179,7 @@ export function blankField(type: FieldKind, index: number): FormFieldDef {
     : type === 'section' ? 'Section'
     : type === 'heading' ? 'A heading'
     : type === 'note' ? 'Please read this before continuing.'
-    : type === 'spacer' ? ''
+    : type === 'spacer' || type === 'page_break' ? ''
     : KIND_LABEL_FALLBACK[type] ?? 'Question';
 
   const withChoices = OPTION_BEARING.includes(type);

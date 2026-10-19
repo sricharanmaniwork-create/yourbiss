@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Heart, Smile, Star, ThumbsUp } from 'lucide-react';
 import { checkAnswers } from '@/lib/forms/answers';
-import { orderedFields } from '@/lib/forms/definition';
+import { answerSummary, orderedFields, pagesOf, type FormPage } from '@/lib/forms/definition';
 import {
   answerCeiling,
   collectsMany,
@@ -31,6 +31,10 @@ import {
  * a bad phone number is the wording the server would have answered with. Field ids
  * are constrained by `formFieldSchema` to letters, numbers, dash and underscore, so
  * they are safe to use raw in a selector.
+ *
+ * A form built with page breaks is answered one page at a time: Next checks only the
+ * questions on screen, Submit checks the whole thing and takes the visitor back to
+ * whichever page holds the first answer that missed.
  */
 
 export interface PublicFormProps {
@@ -82,6 +86,8 @@ export function PublicForm({ formId, title, description, fields, settings, theme
   const [sending, setSending] = useState(false);
   const [trapped, setTrapped] = useState('');
   const [finished, setFinished] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const [reviewing, setReviewing] = useState(false);
   const ref = useRef<HTMLFormElement>(null);
 
   // A field its logic hides is not asked for, not validated, and not sent.
@@ -94,6 +100,19 @@ export function PublicForm({ formId, title, description, fields, settings, theme
     [fields, answers],
   );
 
+  // The pages the builder cut this form into, with the questions logic has hidden
+  // removed. A page holding nothing is not a page a visitor should be walked through.
+  const steps = useMemo(() => {
+    const split = pagesOf(fields, settings.field_order)
+      .map((entry) => ({ title: entry.title, fields: entry.fields.filter((field) => fieldIsVisible(field, answers, fields)) }))
+      .filter((entry) => entry.fields.length > 0);
+    return split.length > 0 ? split : [{ title: '', fields: [] }];
+  }, [fields, settings.field_order, answers]);
+
+  const paged = steps.length > 1;
+  const at = Math.min(page, steps.length - 1);
+  const step = steps[at] ?? { title: '', fields: [] };
+
   const setValue = (id: string, value: unknown) => {
     setAnswers((previous) => ({ ...previous, [id]: value }));
     setErrors((previous) => {
@@ -104,20 +123,60 @@ export function PublicForm({ formId, title, description, fields, settings, theme
     });
   };
 
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (sending) return;
-
-    const payload: Answers = {};
+  /** Every answer the visitor was shown, on every page, as the route expects it. */
+  const payload = (): Answers => {
+    const sent: Answers = {};
     for (const field of shown) {
-      if (!isPresentational(field.type)) payload[field.id] = answers[field.id] ?? '';
+      if (!isPresentational(field.type)) sent[field.id] = answers[field.id] ?? '';
     }
+    return sent;
+  };
 
-    const check = checkAnswers(fields, settings.field_order, payload, today);
+  /** Show what failed and put the caret on the first of them, on its own page. */
+  const report = (found: Record<string, string>) => {
+    setErrors(found);
+    setNotice('Some answers need another look.');
+    const first = shown.find((field) => field.id in found);
+    if (!first) return;
+    const target = steps.findIndex((entry) => entry.fields.some((field) => field.id === first.id));
+    if (target === -1) return;
+    setReviewing(false);
+    setPage(target);
+    // The page holding the failed answer is drawn as soon as this handler returns;
+    // the view follows it, and nothing else could have been typed in between.
+    setTimeout(() => reveal(ref.current, first.id), 0);
+  };
+
+  const forward = () => {
+    const ids = new Set(step.fields.map((field) => field.id));
+    const check = checkAnswers(fields, settings.field_order, answers, today, ids);
     if (Object.keys(check.errors).length > 0) {
-      setErrors(check.errors);
-      setNotice('Some answers need another look.');
-      focusFirst(ref.current, check.errors);
+      report(check.errors);
+      return;
+    }
+    setErrors({});
+    setNotice(null);
+    setPage(at + 1);
+    setTimeout(() => reveal(ref.current, null), 0);
+  };
+
+  const review = () => {
+    const check = checkAnswers(fields, settings.field_order, payload(), today);
+    if (Object.keys(check.errors).length > 0) {
+      report(check.errors);
+      return;
+    }
+    setErrors({});
+    setNotice(null);
+    setReviewing(true);
+  };
+
+  const send = async () => {
+    // The whole form is checked here even when the visitor pressed submit from a
+    // review page they reached page by page: answers change between pages.
+    const check = checkAnswers(fields, settings.field_order, payload(), today);
+    if (Object.keys(check.errors).length > 0) {
+      report(check.errors);
       return;
     }
 
@@ -128,7 +187,7 @@ export function PublicForm({ formId, title, description, fields, settings, theme
       const response = await fetch('/api/form/submit', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ form: formId, answers: payload, company: trapped, source: window.location.href }),
+        body: JSON.stringify({ form: formId, answers: payload(), company: trapped, source: window.location.href }),
       });
       const result = (await response.json().catch(() => null)) as SubmitResult | null;
 
@@ -139,15 +198,34 @@ export function PublicForm({ formId, title, description, fields, settings, theme
         }
         setFinished(result?.message || settings.success_message);
       } else {
-        setErrors(result?.fields ?? {});
+        const found = result?.fields ?? {};
+        // A refusal that names the answers is shown the same way a local failure is,
+        // page jump included.
+        if (Object.keys(found).length > 0) report(found);
+        else setErrors({});
         setNotice(result?.error ?? 'Your response could not be recorded. Please try again.');
-        focusFirst(ref.current, result?.fields ?? {});
       }
     } catch {
       setNotice('Your connection dropped. Please try again.');
     } finally {
       setSending(false);
     }
+  };
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (sending) return;
+    // Enter in a box does whatever the button at the bottom of the screen says.
+    if (!paged || reviewing) {
+      void send();
+      return;
+    }
+    if (at < steps.length - 1) {
+      forward();
+      return;
+    }
+    if (settings.review_page) review();
+    else void send();
   };
 
   const done = (
@@ -165,22 +243,95 @@ export function PublicForm({ formId, title, description, fields, settings, theme
     );
   }
 
+  // A break is not a question, so it never reaches the page: `pagesOf` cut the field
+  // list at it, and the fields either side are the steps a visitor is walked through.
+  const ask = step.fields;
+  const atLast = at === steps.length - 1;
+  const label = !paged || reviewing
+    ? settings.submit_label || 'Submit'
+    : !atLast
+      ? 'Next'
+      : settings.review_page
+        ? 'Review answers'
+        : settings.submit_label || 'Submit';
+
   const body = (
     <>
       {(title !== '' || description) && <FormHead title={title} description={description} />}
       <form ref={ref} noValidate onSubmit={submit} className="yb-form-body">
-        <Body
-          shown={shown}
-          answers={answers}
-          requiredIds={requiredIds}
-          errors={errors}
-          setValue={setValue}
-          settings={settings}
-          sending={sending}
-          notice={notice}
-          trapped={trapped}
-          setTrapped={setTrapped}
+        {/* Bots fill every text input they find; nobody else can see or reach this one. */}
+        <input
+          type="text"
+          name="company"
+          value={trapped}
+          onChange={(event) => setTrapped(event.target.value)}
+          tabIndex={-1}
+          autoComplete="off"
+          aria-hidden="true"
+          className="yb-form-trap"
         />
+
+        {notice && (
+          <p role="alert" className="yb-form-notice">
+            {notice}
+          </p>
+        )}
+
+        {paged && settings.show_progress && (
+          <Progress at={reviewing ? steps.length : at + 1} total={steps.length} caption={reviewing ? 'Review your answers' : `Page ${at + 1} of ${steps.length}`} />
+        )}
+
+        {reviewing ? (
+          <Review
+            steps={steps}
+            answers={answers}
+            onEdit={(index) => {
+              setReviewing(false);
+              setErrors({});
+              setPage(index);
+              setTimeout(() => reveal(ref.current, null), 0);
+            }}
+          />
+        ) : (
+          <>
+            {step.title !== '' && <h2 className="yb-form-page-title">{step.title}</h2>}
+            <div className="yb-form-grid">
+              {ask.map((field) => (
+                <FieldRow
+                  key={field.id}
+                  field={field}
+                  required={requiredIds.has(field.id)}
+                  value={answers[field.id]}
+                  error={errors[field.id]}
+                  setValue={setValue}
+                />
+              ))}
+            </div>
+          </>
+        )}
+
+        <div className="yb-form-foot">
+          <div className="yb-form-actions">
+            {paged && (
+              <button
+                type="button"
+                className="yb-form-back"
+                disabled={sending}
+                onClick={() => {
+                  setReviewing(false);
+                  setErrors({});
+                  setPage(Math.max(0, at - 1));
+                  setTimeout(() => reveal(ref.current, null), 0);
+                }}
+              >
+                Back
+              </button>
+            )}
+            <button type="submit" className="yb-form-submit" disabled={sending}>
+              {sending ? 'Sending…' : label}
+            </button>
+          </div>
+        </div>
       </form>
     </>
   );
@@ -192,12 +343,16 @@ export function PublicForm({ formId, title, description, fields, settings, theme
   );
 }
 
-/** Put the caret on the first answer that failed. */
-function focusFirst(form: HTMLFormElement | null, errors: Record<string, string>) {
+/**
+ * Show a page that has just been drawn, from its top rather than from wherever the
+ * visitor had scrolled, with the caret on the answer that needs looking at. The
+ * caret is not allowed to scroll the page itself — that is what the smooth move is for.
+ */
+function reveal(form: HTMLFormElement | null, focusId: string | null) {
   if (!form) return;
-  const [first] = Object.keys(errors);
-  if (!first) return;
-  form.querySelector<HTMLElement>(`[data-control="${first}"]`)?.focus();
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (focusId === null) return;
+  form.querySelector<HTMLElement>(`[data-control="${focusId}"]`)?.focus({ preventScroll: true });
 }
 
 function FormHead({ title, description }: { title: string; description: string | null }) {
@@ -209,68 +364,63 @@ function FormHead({ title, description }: { title: string; description: string |
   );
 }
 
-function Body({
-  shown,
-  answers,
-  requiredIds,
-  errors,
-  setValue,
-  settings,
-  sending,
-  notice,
-  trapped,
-  setTrapped,
-}: {
-  shown: FormFieldDef[];
-  answers: Answers;
-  requiredIds: Set<string>;
-  errors: Record<string, string>;
-  setValue: (id: string, value: unknown) => void;
-  settings: FormSettings;
-  sending: boolean;
-  notice: string | null;
-  trapped: string;
-  setTrapped: (value: string) => void;
-}) {
+/** How far through a multi-page form the visitor is, in pages rather than questions. */
+function Progress({ at, total, caption }: { at: number; total: number; caption: string }) {
+  const percent = Math.round((at / total) * 100);
   return (
-    <>
-      {/* Bots fill every text input they find; nobody else can see or reach this one. */}
-      <input
-        type="text"
-        name="company"
-        value={trapped}
-        onChange={(event) => setTrapped(event.target.value)}
-        tabIndex={-1}
-        autoComplete="off"
-        aria-hidden="true"
-        className="yb-form-trap"
-      />
-
-      {notice && (
-        <p role="alert" className="yb-form-notice">
-          {notice}
-        </p>
-      )}
-
-      <div className="yb-form-grid">
-        {shown.map((field) => (
-          <FieldRow
-            key={field.id}
-            field={field}
-            required={requiredIds.has(field.id)}
-            value={answers[field.id]}
-            error={errors[field.id]}
-            setValue={setValue}
-          />
-        ))}
+    <div className="yb-form-progress">
+      <p className="yb-form-progress-caption">
+        <span>{caption}</span>
+        <span>{percent}%</span>
+      </p>
+      <div
+        className="yb-form-progress-track"
+        role="progressbar"
+        aria-label="Form answered so far"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+      >
+        <div className="yb-form-progress-fill" style={{ width: `${percent}%` }} />
       </div>
+    </div>
+  );
+}
 
-      <div className="yb-form-foot">
-        <button type="submit" className="yb-form-submit" disabled={sending}>
-          {sending ? 'Sending…' : settings.submit_label || 'Submit'}
-        </button>
-      </div>
-    </>
+/**
+ * The answers as the visitor is about to send them, page by page, each with the way
+ * back to the question. Nothing here is re-checked — reaching this step means every
+ * page already passed the whole-form check.
+ */
+function Review({ steps, answers, onEdit }: { steps: FormPage[]; answers: Answers; onEdit: (index: number) => void }) {
+  return (
+    <div className="yb-form-review">
+      {steps.map((entry, index) => {
+        const lines = answerSummary(entry.fields, answers).filter((line) => line.value !== '');
+        return (
+          <section key={`review-${index}`} className="yb-form-review-page">
+            <header className="yb-form-review-head">
+              <p className="yb-form-review-title">{entry.title !== '' ? entry.title : `Page ${index + 1}`}</p>
+              <button type="button" className="yb-form-review-edit" onClick={() => onEdit(index)}>
+                Edit
+              </button>
+            </header>
+            {lines.length === 0 ? (
+              <p className="yb-form-review-empty">Nothing answered.</p>
+            ) : (
+              <dl className="yb-form-review-list">
+                {lines.map((line) => (
+                  <div key={line.label} className="yb-form-review-row">
+                    <dt>{line.label}</dt>
+                    <dd>{line.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </section>
+        );
+      })}
+    </div>
   );
 }
 

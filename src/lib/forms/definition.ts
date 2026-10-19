@@ -59,6 +59,44 @@ export function visibleFields(fields: FormFieldDef[], answers: Record<string, un
   return fields.filter((field) => fieldIsVisible(field, answers, fields));
 }
 
+/**
+ * The pages a form is answered in — the field list cut at every page break, with the
+ * breaks themselves left out, since a break is a place in the form and not a question.
+ *
+ * A break labels the page it opens, which is what its Label box in the builder is for.
+ * A break with nothing on one side of it is dropped: an empty step would show a visitor
+ * a Next button above a blank screen. A form with no breaks is one page with no title,
+ * because the form's own heading is already sitting above it.
+ */
+export interface FormPage {
+  title: string;
+  fields: FormFieldDef[];
+}
+
+export function pagesOf(fields: FormFieldDef[], order: string[] | undefined): FormPage[] {
+  const pages: FormPage[] = [];
+  let title = '';
+  let onPage: FormFieldDef[] = [];
+
+  const close = () => {
+    if (onPage.length === 0) return;
+    pages.push({ title, fields: onPage });
+    onPage = [];
+  };
+
+  for (const field of orderedFields(fields, order)) {
+    if (field.type === 'page_break') {
+      close();
+      title = field.label.trim();
+      continue;
+    }
+    onPage.push(field);
+  }
+  close();
+
+  return pages;
+}
+
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
