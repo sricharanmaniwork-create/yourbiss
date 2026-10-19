@@ -88,7 +88,7 @@ async function readBody(request: NextRequest): Promise<{ form: string; email: st
  * expects from a form that only ever asked for one thing.
  */
 function answersFor(fields: FormFieldDef[], email: string): { values: Record<string, unknown>; emailFieldId: string | null } {
-  const shown = fields.filter((field) => !isPresentational(field.type) && fieldIsVisible(field, {}));
+  const shown = fields.filter((field) => !isPresentational(field.type) && fieldIsVisible(field, {}, fields));
   const emailField = shown.find((field) => field.type === 'email') ?? null;
   if (!emailField) return { values: {}, emailFieldId: null };
   return { values: { [emailField.id]: email }, emailFieldId: emailField.id };

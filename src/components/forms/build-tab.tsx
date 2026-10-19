@@ -3,11 +3,13 @@
 import { useMemo, useState, useTransition } from 'react';
 import { Copy, GripVertical, Trash } from 'lucide-react';
 import type { ActionState } from '@/lib/types';
-import type { FieldKind, FormFieldDef, LogicOperator, MatrixAxes, RatingSymbol } from '@/lib/forms/types';
+import type { FieldKind, FieldLogic, FormFieldDef, LogicOperator, MatrixAxes, RatingSymbol } from '@/lib/forms/types';
 import {
   ADDRESS_PARTS,
   ADDRESS_PARTS_DEFAULT,
   FIELD_KIND_LABELS,
+  LOGIC_OPERATORS,
+  LOGIC_OPERATOR_LABELS,
   MATRIX_MAX_COLUMNS,
   MATRIX_MAX_ROWS,
   NAME_PARTS,
@@ -21,6 +23,9 @@ import {
   compositeParts,
   isComposite,
   isPresentational,
+  logicOperatorFits,
+  logicOperatorNeedsValue,
+  logicValuePlaceholder,
   partLabel,
   ruleAppliesTo,
 } from '@/lib/forms/types';
@@ -75,22 +80,20 @@ const RATING_SYMBOL_LABELS: Record<RatingSymbol, string> = {
   smiley: 'Smileys',
 };
 
-const OPERATORS: LogicOperator[] = ['is', 'is_not', 'contains', 'is_empty', 'is_filled', 'gt', 'lt'];
+/** What a matched rule does, and how the panel says so at each step. */
+const LOGIC_ACTIONS: FieldLogic['action'][] = ['show', 'hide', 'require'];
 
-const OPERATOR_LABELS: Record<LogicOperator, string> = {
-  is: 'is',
-  is_not: 'is not',
-  contains: 'contains',
-  is_empty: 'is empty',
-  is_filled: 'is filled',
-  gt: 'is greater than',
-  lt: 'is less than',
+const LOGIC_ACTION_LABELS: Record<FieldLogic['action'], string> = {
+  show: 'show this question',
+  hide: 'hide this question',
+  require: 'make this question compulsory',
 };
 
-/** `is empty` and `is filled` read the answer alone, so they take no value. */
-function needsValue(operator: LogicOperator): boolean {
-  return operator !== 'is_empty' && operator !== 'is_filled';
-}
+const LOGIC_HEADLINE: Record<FieldLogic['action'], string> = {
+  show: 'Show only when',
+  hide: 'Hide when',
+  require: 'Require when',
+};
 
 export function BuildTab({
   form,
@@ -363,7 +366,11 @@ function Row({ field }: { field: FormFieldDef }) {
       <Mock field={field} />
       {rules > 0 && (
         <p className="mt-1.5 text-[11px] text-brand">
-          {field.logic?.action === 'show' ? 'Shown only when ' : 'Hidden when '}
+          {field.logic?.action === 'show'
+            ? 'Shown only when '
+            : field.logic?.action === 'hide'
+              ? 'Hidden when '
+              : 'Compulsory when '}
           {rules === 1 ? '1 rule matches' : `${field.logic?.match === 'all' ? 'all' : 'any'} of ${rules} rules match`}
         </p>
       )}
@@ -1508,7 +1515,10 @@ function LogicEditor({
 
   const setLogic = (next: FormFieldDef['logic']) => onChange({ logic: next });
 
-  const setCondition = (index: number, changes: Partial<{ field_id: string; operator: LogicOperator; value: string }>) => {
+  const setCondition = (
+    index: number,
+    changes: Partial<{ field_id: string; operator: LogicOperator; value: string; part: string }>,
+  ) => {
     if (!logic) return;
     setLogic({
       ...logic,
@@ -1519,7 +1529,7 @@ function LogicEditor({
   return (
     <div className="grid gap-2 border-t border-line pt-3">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-[12.5px] font-medium text-ink">Show only when</span>
+        <span className="text-[12.5px] font-medium text-ink">{logic ? LOGIC_HEADLINE[logic.action] : 'Show only when'}</span>
         <Switch
           checked={logic !== null}
           disabled={!canManage || askable.length === 0}
@@ -1548,10 +1558,14 @@ function LogicEditor({
                 id={`${idPrefix}-action`}
                 value={logic.action}
                 disabled={!canManage}
-                onChange={(event) => setLogic({ ...logic, action: event.target.value === 'hide' ? 'hide' : 'show' })}
+                onChange={(event) => setLogic({ ...logic, action: event.target.value as FieldLogic['action'] })}
               >
-                <option value="show">show this question</option>
-                <option value="hide">hide this question</option>
+                {LOGIC_ACTIONS.map((action) => (
+                  <option key={action} value={action} disabled={action === 'require' && field.required === true}>
+                    {LOGIC_ACTION_LABELS[action]}
+                    {action === 'require' && field.required === true ? ' — already compulsory' : ''}
+                  </option>
+                ))}
               </Select>
             </Field>
             <Field label="Rules" htmlFor={`${idPrefix}-match`}>
@@ -1571,6 +1585,12 @@ function LogicEditor({
             const source = askable.find((other) => other.id === condition.field_id) ?? null;
             const choiceSource = source !== null && (SINGLE_CHOICE.includes(source.type) || collectsMany(source));
             const comparesToAChoice = choiceSource && ['is', 'is_not', 'contains'].includes(condition.operator);
+            const parts = source !== null && isComposite(source.type) ? compositeParts(source) : [];
+            // A rule kept from before the question it read changed keeps showing its own
+            // operator, even though the new kind would not accept it; Publish refuses it.
+            const operators = LOGIC_OPERATORS.filter(
+              (operator) => source === null || logicOperatorFits(source.type, operator) || operator === condition.operator,
+            );
             return (
               <div key={index} className="grid gap-1.5 rounded-md border border-line bg-canvas px-2.5 py-2">
                 <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] gap-1.5">
@@ -1578,7 +1598,16 @@ function LogicEditor({
                     aria-label={`Condition ${index + 1} question`}
                     value={condition.field_id}
                     disabled={!canManage}
-                    onChange={(event) => setCondition(index, { field_id: event.target.value, value: '' })}
+                    onChange={(event) => {
+                      const next = askable.find((other) => other.id === event.target.value) ?? null;
+                      const operator = next !== null && logicOperatorFits(next.type, condition.operator) ? condition.operator : 'is';
+                      setCondition(index, {
+                        field_id: event.target.value,
+                        operator,
+                        value: '',
+                        part: '',
+                      });
+                    }}
                   >
                     {askable.length === 0 && <option value="">No question to read</option>}
                     {askable.map((other) => (
@@ -1593,18 +1622,34 @@ function LogicEditor({
                     disabled={!canManage}
                     onChange={(event) => {
                       const next = event.target.value as LogicOperator;
-                      setCondition(index, { operator: next, value: needsValue(next) ? condition.value : '' });
+                      setCondition(index, { operator: next, value: logicOperatorNeedsValue(next) ? condition.value : '' });
                     }}
                   >
-                    {OPERATORS.map((operator) => (
+                    {operators.map((operator) => (
                       <option key={operator} value={operator}>
-                        {OPERATOR_LABELS[operator]}
+                        {LOGIC_OPERATOR_LABELS[operator]}
                       </option>
                     ))}
                   </Select>
                 </div>
 
-                {needsValue(condition.operator) &&
+                {parts.length > 0 && (
+                  <Select
+                    aria-label={`Condition ${index + 1} part`}
+                    value={condition.part ?? ''}
+                    disabled={!canManage}
+                    onChange={(event) => setCondition(index, { part: event.target.value })}
+                  >
+                    <option value="">the whole answer</option>
+                    {parts.map((part) => (
+                      <option key={part} value={part}>
+                        {source ? partLabel(source, part) : part}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+
+                {logicOperatorNeedsValue(condition.operator) &&
                   (comparesToAChoice ? (
                     <Select
                       aria-label={`Condition ${index + 1} value`}
@@ -1624,7 +1669,7 @@ function LogicEditor({
                       value={condition.value ?? ''}
                       maxLength={400}
                       disabled={!canManage}
-                      placeholder={source && ['number', 'rupees', 'currency', 'rating', 'slider'].includes(source.type) ? '10' : 'the answer'}
+                      placeholder={logicValuePlaceholder(source?.type ?? null)}
                       onChange={(event) => setCondition(index, { value: event.target.value })}
                     />
                   ))}
@@ -1661,8 +1706,9 @@ function LogicEditor({
           )}
 
           <p className="text-[11.5px] leading-relaxed text-muted">
-            A question this hides is never asked, so it is not required and its answer is not stored. The same rule runs
-            in the visitor&apos;s browser and in the database.
+            A question this hides is never asked, so it is not required and its answer is not stored. One this makes
+            compulsory asks for an answer only while the rule holds. The same rule runs in the visitor&apos;s browser and
+            on the server.
           </p>
         </>
       )}

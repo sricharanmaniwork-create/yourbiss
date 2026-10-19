@@ -9,6 +9,7 @@ import {
   collectsMany,
   COMPOSITE_PART_MAX_CHARS,
   compositeParts,
+  fieldIsRequired,
   fieldIsVisible,
   isComposite,
   isPresentational,
@@ -84,7 +85,14 @@ export function PublicForm({ formId, title, description, fields, settings, theme
   const ref = useRef<HTMLFormElement>(null);
 
   // A field its logic hides is not asked for, not validated, and not sent.
-  const shown = useMemo(() => ordered.filter((field) => fieldIsVisible(field, answers)), [ordered, answers]);
+  const shown = useMemo(() => ordered.filter((field) => fieldIsVisible(field, answers, fields)), [ordered, answers, fields]);
+
+  // A rule can make an otherwise optional question compulsory, and the asterisk has to
+  // appear for exactly the same answers that make the submit check demand one.
+  const requiredIds = useMemo(
+    () => new Set(fields.filter((field) => fieldIsRequired(field, answers, fields)).map((field) => field.id)),
+    [fields, answers],
+  );
 
   const setValue = (id: string, value: unknown) => {
     setAnswers((previous) => ({ ...previous, [id]: value }));
@@ -164,6 +172,7 @@ export function PublicForm({ formId, title, description, fields, settings, theme
         <Body
           shown={shown}
           answers={answers}
+          requiredIds={requiredIds}
           errors={errors}
           setValue={setValue}
           settings={settings}
@@ -203,6 +212,7 @@ function FormHead({ title, description }: { title: string; description: string |
 function Body({
   shown,
   answers,
+  requiredIds,
   errors,
   setValue,
   settings,
@@ -213,6 +223,7 @@ function Body({
 }: {
   shown: FormFieldDef[];
   answers: Answers;
+  requiredIds: Set<string>;
   errors: Record<string, string>;
   setValue: (id: string, value: unknown) => void;
   settings: FormSettings;
@@ -243,7 +254,14 @@ function Body({
 
       <div className="yb-form-grid">
         {shown.map((field) => (
-          <FieldRow key={field.id} field={field} value={answers[field.id]} error={errors[field.id]} setValue={setValue} />
+          <FieldRow
+            key={field.id}
+            field={field}
+            required={requiredIds.has(field.id)}
+            value={answers[field.id]}
+            error={errors[field.id]}
+            setValue={setValue}
+          />
         ))}
       </div>
 
@@ -261,11 +279,13 @@ const CHOICE_KINDS: FieldKind[] = ['radio', 'checkbox', 'multiselect', 'image_ch
 
 function FieldRow({
   field,
+  required,
   value,
   error,
   setValue,
 }: {
   field: FormFieldDef;
+  required: boolean;
   value: unknown;
   error?: string;
   setValue: (id: string, value: unknown) => void;
@@ -304,7 +324,7 @@ function FieldRow({
       <fieldset className={`yb-form-field yb-form-group${half}`} data-field={field.id}>
         <legend className="yb-form-label">
           {field.label}
-          {field.required && <span className="yb-form-req">*</span>}
+          {required && <span className="yb-form-req">*</span>}
         </legend>
         <ChoiceList field={field} value={value} setValue={setValue} />
         {field.help && <p id={`${field.id}-help`} className="yb-form-help">{field.help}</p>}
@@ -322,7 +342,7 @@ function FieldRow({
       <fieldset className={`yb-form-field yb-form-group${half}`} data-field={field.id}>
         <legend className="yb-form-label">
           {field.label}
-          {field.required && <span className="yb-form-req">*</span>}
+          {required && <span className="yb-form-req">*</span>}
         </legend>
         <MatrixGrid field={field} value={value} error={!!error} setValue={setValue} />
         {field.help && <p id={`${field.id}-help`} className="yb-form-help">{field.help}</p>}
@@ -340,9 +360,9 @@ function FieldRow({
       <fieldset className={`yb-form-field yb-form-group${half}`} data-field={field.id}>
         <legend className="yb-form-label">
           {field.label}
-          {field.required && <span className="yb-form-req">*</span>}
+          {required && <span className="yb-form-req">*</span>}
         </legend>
-        <PartsGrid field={field} value={value} error={!!error} setValue={setValue} describedBy={describedBy} />
+        <PartsGrid field={field} required={required} value={value} error={!!error} setValue={setValue} describedBy={describedBy} />
         {field.help && <p id={`${field.id}-help`} className="yb-form-help">{field.help}</p>}
         {error && (
           <p id={`${field.id}-error`} className="yb-form-error" role="alert">
@@ -358,10 +378,10 @@ function FieldRow({
       {field.type !== 'checkbox_single' && (
         <label className="yb-form-label" htmlFor={field.id}>
           {field.label}
-          {field.required && <span className="yb-form-req">*</span>}
+          {required && <span className="yb-form-req">*</span>}
         </label>
       )}
-      <Control field={field} value={value} error={!!error} setValue={setValue} describedBy={describedBy} />
+      <Control field={field} required={required} value={value} error={!!error} setValue={setValue} describedBy={describedBy} />
       {field.help && <p id={`${field.id}-help`} className="yb-form-help">{field.help}</p>}
       {error && (
         <p id={`${field.id}-error`} className="yb-form-error" role="alert">
@@ -513,12 +533,14 @@ const WIDE_PARTS = new Set(['line1', 'line2']);
  * every part it shows — which is exactly what the builder says it does. */
 function PartsGrid({
   field,
+  required,
   value,
   error,
   setValue,
   describedBy,
 }: {
   field: FormFieldDef;
+  required: boolean;
   value: unknown;
   error: boolean;
   setValue: (id: string, value: unknown) => void;
@@ -536,7 +558,7 @@ function PartsGrid({
             type="text"
             autoComplete={AUTOFILL[part]}
             maxLength={COMPOSITE_PART_MAX_CHARS}
-            aria-required={field.required || undefined}
+            aria-required={required || undefined}
             aria-describedby={describedBy || undefined}
             value={filled[part] ?? ''}
             onChange={(event) => setValue(field.id, { ...filled, [part]: event.target.value })}
@@ -556,7 +578,7 @@ const RATING_GLYPH: Record<RatingSymbol, typeof Star | null> = {
 };
 
 /** One set of identity and a11y attributes, shared by every control for this field. */
-function controlProps(field: FormFieldDef, error: boolean, describedBy: string) {
+function controlProps(field: FormFieldDef, required: boolean, error: boolean, describedBy: string) {
   return {
     id: field.id,
     name: field.id,
@@ -564,18 +586,20 @@ function controlProps(field: FormFieldDef, error: boolean, describedBy: string) 
     placeholder: field.placeholder ?? undefined,
     'aria-invalid': error || undefined,
     'aria-describedby': describedBy || undefined,
-    'aria-required': field.required || undefined,
+    'aria-required': required || undefined,
   };
 }
 
 function Control({
   field,
+  required,
   value,
   error,
   setValue,
   describedBy,
 }: {
   field: FormFieldDef;
+  required: boolean;
   value: unknown;
   error: boolean;
   setValue: (id: string, value: unknown) => void;
@@ -583,7 +607,7 @@ function Control({
 }) {
   const text = value === undefined || value === null || typeof value === 'object' ? '' : String(value);
   const v = field.validation ?? {};
-  const shared = controlProps(field, error, describedBy);
+  const shared = controlProps(field, required, error, describedBy);
 
   /** A code or a unit the answer cannot carry is drawn, never stored. */
   const withAffix = (input: React.ReactNode) =>
@@ -705,7 +729,7 @@ function Control({
             checked={value === true}
             aria-invalid={error || undefined}
             aria-describedby={describedBy || undefined}
-            aria-required={field.required || undefined}
+            aria-required={required || undefined}
             onChange={(event) => setValue(field.id, event.target.checked)}
           />
           <span>{field.label}</span>

@@ -276,18 +276,115 @@ export interface FieldOption {
   image_url?: string;
 }
 
-export type LogicOperator = 'is' | 'is_not' | 'contains' | 'is_empty' | 'is_filled' | 'gt' | 'lt';
+export type LogicOperator =
+  | 'is' | 'is_not' | 'contains' | 'not_contains' | 'starts_with' | 'ends_with'
+  | 'is_empty' | 'is_filled' | 'gt' | 'lt' | 'before' | 'after';
+
+/** Kinds whose answer is a number, so a rule can be told to compare it with one. */
+const NUMERIC_SOURCES: readonly FieldKind[] = ['number', 'rupees', 'currency', 'rating', 'slider'];
+
+/** Kinds whose answer is a day or a month, so a rule can be told before or after one. */
+const DAY_SOURCES: readonly FieldKind[] = ['date', 'datetime', 'monthyear', 'time'];
+
+/** Kinds whose answer is a single written value, so a rule can be told how it opens or ends. */
+const WRITTEN_SOURCES: readonly FieldKind[] = ['text', 'textarea', 'email', 'phone', 'url', 'name', 'address', 'select', 'radio'];
 
 export interface LogicCondition {
   field_id: string;
   operator: LogicOperator;
   value?: string;
+  /** Which part of a name or address to read. Only legal when that is the source. */
+  part?: string;
 }
 
+/**
+ * What a matched rule does to this question.
+ *
+ * `show` and `hide` decide whether the question is asked at all — a hidden field is
+ * never required and its answer is never stored. `require` asks the question as usual
+ * but makes an answer compulsory, which is what an office wants when a box only
+ * matters once a particular choice has been made.
+ */
 export interface FieldLogic {
-  action: 'show' | 'hide';
+  action: 'show' | 'hide' | 'require';
   match: 'all' | 'any';
   conditions: LogicCondition[];
+}
+
+/** The kinds each rule operator can be pointed at, and the wording for when it cannot. */
+const LOGIC_SOURCE_KINDS: Partial<Record<LogicOperator, readonly FieldKind[]>> = {
+  gt: NUMERIC_SOURCES,
+  lt: NUMERIC_SOURCES,
+  before: DAY_SOURCES,
+  after: DAY_SOURCES,
+  starts_with: WRITTEN_SOURCES,
+  ends_with: WRITTEN_SOURCES,
+};
+
+/** `is empty` and `is filled` read the answer alone, so they are given nothing to compare with. */
+const VALUELESS_OPERATORS: LogicOperator[] = ['is_empty', 'is_filled'];
+
+export function logicOperatorNeedsValue(operator: LogicOperator): boolean {
+  return !VALUELESS_OPERATORS.includes(operator);
+}
+
+/** Whether an operator can be pointed at a question of this kind. */
+export function logicOperatorFits(kind: FieldKind, operator: LogicOperator): boolean {
+  const kinds = LOGIC_SOURCE_KINDS[operator];
+  return kinds ? kinds.includes(kind) : true;
+}
+
+/** The rules a condition can use, in the order the builder lists them. */
+export const LOGIC_OPERATORS: LogicOperator[] = [
+  'is',
+  'is_not',
+  'contains',
+  'not_contains',
+  'starts_with',
+  'ends_with',
+  'is_empty',
+  'is_filled',
+  'gt',
+  'lt',
+  'before',
+  'after',
+];
+
+/**
+ * Each one reads as a verb phrase, because the builder puts it after the question name
+ * and a Publish refusal quotes it the same way: "asks “Joining date” whether it is
+ * earlier than".
+ */
+export const LOGIC_OPERATOR_LABELS: Record<LogicOperator, string> = {
+  is: 'is',
+  is_not: 'is not',
+  contains: 'contains',
+  not_contains: 'does not contain',
+  starts_with: 'starts with',
+  ends_with: 'ends with',
+  is_empty: 'is empty',
+  is_filled: 'is answered',
+  gt: 'is more than',
+  lt: 'is less than',
+  before: 'is earlier than',
+  after: 'is later than',
+};
+
+/** A rule is typed in the shape the answer it reads is stored in. */
+const LOGIC_VALUE_HINTS: Partial<Record<FieldKind, string>> = {
+  number: '10',
+  rupees: '1000',
+  currency: '1000',
+  rating: '3',
+  slider: '40',
+  date: '2026-03-04',
+  datetime: '2026-03-04T09:30',
+  monthyear: '2026-03',
+  time: '14:30',
+};
+
+export function logicValuePlaceholder(kind: FieldKind | null): string {
+  return (kind === null ? undefined : LOGIC_VALUE_HINTS[kind]) ?? 'the answer';
 }
 
 export interface FormFieldDef {
@@ -368,7 +465,9 @@ export function answerCeiling(field: FormFieldDef): number {
   return typeof wanted === 'number' ? Math.min(kindCeiling(field), wanted) : kindCeiling(field);
 }
 
-const logicOperatorEnum = z.enum(['is', 'is_not', 'contains', 'is_empty', 'is_filled', 'gt', 'lt']);
+const logicOperatorEnum = z.enum([
+  'is', 'is_not', 'contains', 'not_contains', 'starts_with', 'ends_with', 'is_empty', 'is_filled', 'gt', 'lt', 'before', 'after',
+]);
 
 /**
  * The kinds each rule may sit on, and the word Publish uses when it says it may not.
@@ -506,7 +605,7 @@ export const formFieldSchema: z.ZodType<FormFieldDef> = z
       .optional(),
     logic: z
       .object({
-        action: z.enum(['show', 'hide']),
+        action: z.enum(['show', 'hide', 'require']),
         match: z.enum(['all', 'any']),
         conditions: z
           .array(
@@ -515,6 +614,7 @@ export const formFieldSchema: z.ZodType<FormFieldDef> = z
                 field_id: z.string().max(64),
                 operator: logicOperatorEnum,
                 value: z.string().max(400).optional(),
+                part: z.string().max(32).optional(),
               })
               .passthrough(),
           )
@@ -662,12 +762,10 @@ export type FormDefinition = z.infer<typeof formDefinitionSchema>;
  */
 export function validateFieldSemantics(fields: FormFieldDef[]): string | null {
   const ids = new Set<string>();
-  const collecting = new Set<string>();
 
   for (const field of fields) {
     if (ids.has(field.id)) return `Two fields share the id "${field.id}"`;
     ids.add(field.id);
-    if (!isPresentational(field.type)) collecting.add(field.id);
 
     if (OPTION_BEARING.includes(field.type)) {
       const options = field.options ?? [];
@@ -725,19 +823,8 @@ export function validateFieldSemantics(fields: FormFieldDef[]): string | null {
       }
     }
 
-    if (field.logic) {
-      for (const condition of field.logic.conditions) {
-        if (!ids.has(condition.field_id)) {
-          return `"${field.label}" has logic referring to a field that does not exist`;
-        }
-        if (condition.field_id === field.id) {
-          return `"${field.label}" cannot control its own visibility`;
-        }
-        if (!collecting.has(condition.field_id)) {
-          return `"${field.label}" has logic referring to a field that collects no answer`;
-        }
-      }
-    }
+    const logicError = validateLogic(field, fields);
+    if (logicError) return logicError;
 
     if (field.validation?.pattern) {
       try {
@@ -818,45 +905,193 @@ function validateRules(field: FormFieldDef, fields: FormFieldDef[]): string | nu
 }
 
 /**
+ * A rule is only worth publishing when the answer it reads can be read: the question it
+ * points at has to exist and collect an answer, the comparison has to be one that kind
+ * of answer takes, and the rule has to have something to compare against. A rule with
+ * no conditions, or a compulsory rule on a question already compulsory, asks nothing.
+ */
+function validateLogic(field: FormFieldDef, fields: FormFieldDef[]): string | null {
+  const logic = field.logic;
+  if (!logic) return null;
+
+  const named = `"${field.label}"`;
+  if (logic.conditions.length === 0) return `${named} has a rule with nothing to check`;
+  if (logic.action === 'require' && field.required === true) {
+    return `${named} is already compulsory, so its rule asks for nothing`;
+  }
+
+  for (const condition of logic.conditions) {
+    const source = fields.find((candidate) => candidate.id === condition.field_id) ?? null;
+    if (!source) return `${named} has logic referring to a field that does not exist`;
+    if (source.id === field.id) return `${named} cannot be controlled by an answer to itself`;
+    if (isPresentational(source.type)) return `${named} has logic referring to a field that collects no answer`;
+
+    if (!logicOperatorFits(source.type, condition.operator)) {
+      return `${named} asks “${source.label}” whether it ${LOGIC_OPERATOR_LABELS[condition.operator]} — that kind of question cannot be asked that way`;
+    }
+
+    if (logicOperatorNeedsValue(condition.operator) && !condition.value?.trim()) {
+      return `${named} has a rule that compares an answer to nothing`;
+    }
+
+    // A part is only a thing to read on a question made of parts, and only one it asks.
+    const part = condition.part?.trim();
+    if (part) {
+      if (!isComposite(source.type)) return `${named} reads a part of “${source.label}”, which has none`;
+      if (!compositeParts(source).includes(part)) {
+        return `${named} reads a part “${source.label}” does not ask for`;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * Whether a field should be shown, given the answers so far. Shared by the live
  * public form (browser) and the server validator, so a hidden required field is
  * treated the same way on both sides.
  */
-export function fieldIsVisible(field: FormFieldDef, answers: Record<string, unknown>): boolean {
-  if (!field.logic || field.logic.conditions.length === 0) return true;
-
-  const results = field.logic.conditions.map((c) => evaluateCondition(c, answers[c.field_id]));
-  const matched = field.logic.match === 'all' ? results.every(Boolean) : results.some(Boolean);
-
-  return field.logic.action === 'show' ? matched : !matched;
+export function fieldIsVisible(
+  field: FormFieldDef,
+  answers: Record<string, unknown>,
+  fields: FormFieldDef[],
+): boolean {
+  const logic = field.logic;
+  if (!logic || logic.conditions.length === 0 || logic.action === 'require') return true;
+  const matched = logicMatches(logic, answers, fields);
+  return logic.action === 'show' ? matched : !matched;
 }
 
-function evaluateCondition(condition: LogicCondition, actual: unknown): boolean {
-  const empty =
-    actual === undefined ||
-    actual === null ||
-    (typeof actual === 'string' && actual.trim() === '') ||
-    (Array.isArray(actual) && actual.length === 0);
+/**
+ * Whether an answer is compulsory — either the question says so on its own, or a rule
+ * makes it so once a particular answer has been given. A question a rule hides is
+ * never compulsory: `fieldIsVisible` already took it out of the form.
+ */
+export function fieldIsRequired(
+  field: FormFieldDef,
+  answers: Record<string, unknown>,
+  fields: FormFieldDef[],
+): boolean {
+  if (field.required === true) return true;
+  const logic = field.logic;
+  if (!logic || logic.action !== 'require' || logic.conditions.length === 0) return false;
+  return logicMatches(logic, answers, fields);
+}
+
+function logicMatches(logic: FieldLogic, answers: Record<string, unknown>, fields: FormFieldDef[]): boolean {
+  const results = logic.conditions.map((condition) =>
+    evaluateCondition(
+      condition,
+      answers[condition.field_id],
+      fields.find((candidate) => candidate.id === condition.field_id) ?? null,
+    ),
+  );
+  return logic.match === 'all' ? results.every(Boolean) : results.some(Boolean);
+}
+
+/**
+ * One rule, judged against one answer.
+ *
+ * The source field is what makes this readable: an answer is flattened the way that
+ * kind of question holds it, so a matrix, a decision or a name never has to be
+ * compared as the text of an object. A question nobody answered matches no comparison
+ * at all — only `is empty` fires on a blank, which is what stops a rule coming true
+ * because somebody left the box alone.
+ */
+function evaluateCondition(
+  condition: LogicCondition,
+  actual: unknown,
+  source: FormFieldDef | null,
+): boolean {
+  const empty = isEmptyAnswer(actual);
+  if (condition.operator === 'is_empty') return empty;
+  if (condition.operator === 'is_filled') return !empty;
+  if (empty) return false;
+
+  const wanted = String(condition.value ?? '');
+  const value = source ? logicValue(source, actual, condition.part) : String(actual ?? '');
 
   switch (condition.operator) {
-    case 'is_empty':
-      return empty;
-    case 'is_filled':
-      return !empty;
     case 'is':
-      return String(actual ?? '') === String(condition.value ?? '');
+      return answerText(value) === wanted;
     case 'is_not':
-      return String(actual ?? '') !== String(condition.value ?? '');
+      return answerText(value) !== wanted;
     case 'contains':
-      if (Array.isArray(actual)) return actual.some((v) => String(v) === String(condition.value ?? ''));
-      return String(actual ?? '').toLowerCase().includes(String(condition.value ?? '').toLowerCase());
+      return answerHolds(value, wanted);
+    case 'not_contains':
+      return !answerHolds(value, wanted);
+    case 'starts_with':
+      return answerText(value).toLowerCase().startsWith(wanted.toLowerCase());
+    case 'ends_with':
+      return answerText(value).toLowerCase().endsWith(wanted.toLowerCase());
     case 'gt':
-      return Number(actual) > Number(condition.value);
+      return Number(answerText(value)) > Number(wanted);
     case 'lt':
-      return Number(actual) < Number(condition.value);
+      return Number(answerText(value)) < Number(wanted);
+    // Days are typed `2026-03-04` and months `2026-03`, so the text is already in the
+    // order the calendar is in. No date maths is needed to say which came first.
+    case 'before':
+      return answerText(value) < wanted;
+    case 'after':
+      return answerText(value) > wanted;
     default:
       return true;
   }
+}
+
+/** One answer reduced to what a rule can be compared against. */
+function logicValue(source: FormFieldDef, raw: unknown, part?: string): string | string[] {
+  if (isComposite(source.type)) return part ? partValue(raw, part) : compositeText(source, raw);
+  if (Array.isArray(raw)) return raw.map((entry) => String(entry).trim());
+  if (source.type === 'matrix') {
+    const cells = raw as Record<string, unknown>;
+    return (source.matrix?.rows ?? []).map((row) => String(cells[String(row.value)] ?? '')).filter((cell) => cell !== '');
+  }
+  if (source.type === 'decision') {
+    const parts = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+    return String(parts.value ?? '');
+  }
+  if (source.type === 'geolocation') {
+    const parts = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+    return `${String(parts.lat ?? '')}, ${String(parts.lng ?? '')}`;
+  }
+  if (typeof raw === 'object') return '';
+  return String(raw).trim();
+}
+
+function answerText(value: string | string[]): string {
+  return Array.isArray(value) ? value.join(',') : value;
+}
+
+/** A list is held to its members; written text is held to what it contains. */
+function answerHolds(value: string | string[], wanted: string): boolean {
+  if (Array.isArray(value)) return value.includes(wanted);
+  return value.toLowerCase().includes(wanted.toLowerCase());
+}
+
+/**
+ * Whether an answer says nothing at all. A tick not ticked, a list with nothing in it
+ * and an object whose every part is blank all count as no answer.
+ */
+export function isEmptyAnswer(raw: unknown): boolean {
+  if (raw === undefined || raw === null) return true;
+  if (typeof raw === 'string') return raw.trim() === '';
+  if (Array.isArray(raw)) return raw.length === 0;
+  if (typeof raw === 'boolean') return raw === false;
+  if (typeof raw === 'object') {
+    return Object.values(raw as Record<string, unknown>).every((part) => isEmptyAnswer(part));
+  }
+  return false;
+}
+
+/** The parts of a name or an address, written out the way the form shows them. */
+export function compositeText(field: FormFieldDef, raw: unknown): string {
+  if (!isComposite(field.type)) return '';
+  const parts = (field.type === 'name' ? NAME_PARTS : ADDRESS_PARTS)
+    .map((part) => partValue(raw, part))
+    .filter((value) => value !== '');
+  return parts.join(field.type === 'name' ? ' ' : ', ');
 }
 
 export const FIELD_KIND_LABELS: Record<FieldKind, string> = {

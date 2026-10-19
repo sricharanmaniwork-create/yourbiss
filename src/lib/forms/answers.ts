@@ -6,7 +6,9 @@ import {
   COMPOSITE_PART_MAX_CHARS,
   compositeParts,
   fieldIsVisible,
+  fieldIsRequired,
   isComposite,
+  isEmptyAnswer,
   isPresentational,
   kindCeiling,
   partValue,
@@ -61,7 +63,7 @@ export function checkAnswers(
   const errors: Record<string, string> = {};
   let emailFieldId: string | null = null;
 
-  const shown = orderedFields(fields, order).filter((field) => fieldIsVisible(field, answers));
+  const shown = orderedFields(fields, order).filter((field) => fieldIsVisible(field, answers, fields));
 
   for (const field of shown) {
     if (isPresentational(field.type)) continue;
@@ -73,7 +75,7 @@ export function checkAnswers(
     if (empty) {
       // "Tick this to continue" reads better than "Field is required" for a
       // consent box, and the field already carries that message.
-      if (field.required) errors[field.id] = messageFor(field, `${field.label || 'This field'} is required`);
+      if (fieldIsRequired(field, answers, fields)) errors[field.id] = messageFor(field, `${field.label || 'This field'} is required`);
       continue;
     }
 
@@ -85,7 +87,7 @@ export function checkAnswers(
       continue;
     }
 
-    const result = schemaFor(field).safeParse(raw);
+    const result = schemaFor(field, fieldIsRequired(field, answers, fields)).safeParse(raw);
     if (!result.success) {
       errors[field.id] = messageFor(field, result.error.issues[0]?.message ?? 'Check this answer');
       continue;
@@ -273,19 +275,6 @@ function sameAnswer(one: unknown, other: unknown): boolean {
   return one === other;
 }
 
-function isEmptyAnswer(raw: unknown): boolean {
-  if (raw === undefined || raw === null) return true;
-  if (typeof raw === 'string') return raw.trim() === '';
-  if (Array.isArray(raw)) return raw.length === 0;
-  if (typeof raw === 'boolean') return raw === false;
-  // A matrix, a decision or a location arrives as an object; it counts as
-  // unanswered only when every one of its parts is empty.
-  if (typeof raw === 'object') {
-    return Object.values(raw as Record<string, unknown>).every((part) => isEmptyAnswer(part));
-  }
-  return false;
-}
-
 const trimToString = (v: unknown) => (typeof v === 'string' ? v.trim() : v);
 
 /** A payload that should have been a part-object arrives as anything; read it as `{}`. */
@@ -305,8 +294,12 @@ function isOnStep(value: number, from: number, step: number): boolean {
 /**
  * Every schema here runs on a value already known not to be empty, so each one
  * only has to say whether the shape is right.
+ *
+ * `required` is whether the field is compulsory for *these* answers — it can come from
+ * a rule rather than the checkbox — because a partial answer to a compulsory matrix or
+ * composite is not an answer to it.
  */
-function schemaFor(field: FormFieldDef): z.ZodTypeAny {
+function schemaFor(field: FormFieldDef, required: boolean): z.ZodTypeAny {
   const label = field.label || 'This field';
   const v = field.validation ?? {};
 
@@ -331,7 +324,7 @@ function schemaFor(field: FormFieldDef): z.ZodTypeAny {
         .refine(
           // A required composite wants what it shows: the parts are the question, and
           // switching one on in the builder is what makes it an answer the app needs.
-          (o) => !field.required || parts.every((part) => o[part] !== ''),
+          (o) => !required || parts.every((part) => o[part] !== ''),
           `Fill in every part of “${label}”`,
         );
     }
@@ -439,7 +432,7 @@ function schemaFor(field: FormFieldDef): z.ZodTypeAny {
         .transform((o) => Object.fromEntries(Object.entries(o).map(([k, val]) => [k, typeof val === 'string' ? val.trim() : val])))
         .refine((o) => Object.keys(o).every((k) => rows.includes(k)), 'Only answer the rows given')
         .refine((o) => Object.values(o).every((val) => typeof val === 'string' && columns.has(val)), 'Choose one of the columns for each row')
-        .refine((o) => !field.required || rows.every((r) => o[r]), 'Answer every row');
+        .refine((o) => !required || rows.every((r) => o[r]), 'Answer every row');
     }
 
     case 'geolocation':

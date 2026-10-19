@@ -1,11 +1,9 @@
 import {
-  ADDRESS_PARTS,
   choiceLabel,
+  compositeText,
   fieldIsVisible,
   isComposite,
   isPresentational,
-  NAME_PARTS,
-  partValue,
   type FormFieldDef,
   type FormSettings,
 } from './types';
@@ -58,7 +56,7 @@ export function isFormClosed(closeAt: string | null, now = new Date()): boolean 
  * all use this list, which is why the same helper runs in the browser.
  */
 export function visibleFields(fields: FormFieldDef[], answers: Record<string, unknown>): FormFieldDef[] {
-  return fields.filter((field) => fieldIsVisible(field, answers));
+  return fields.filter((field) => fieldIsVisible(field, answers, fields));
 }
 
 const MONTH_NAMES = [
@@ -76,12 +74,7 @@ export function answerValue(field: FormFieldDef, raw: unknown): string {
 
   // A composite is one object of parts. Its flat form is the string a person writes
   // by hand — a name in word order, an address in the order an envelope carries it.
-  if (isComposite(field.type)) {
-    const parts = (field.type === 'name' ? NAME_PARTS : ADDRESS_PARTS)
-      .map((part) => partValue(raw, part))
-      .filter((value) => value !== '');
-    return parts.join(field.type === 'name' ? ' ' : ', ');
-  }
+  if (isComposite(field.type)) return compositeText(field, raw);
 
   if (Array.isArray(raw)) {
     return raw.map((v) => String(v)).filter(Boolean).map((v) => choiceLabel(field, v)).join(', ');
