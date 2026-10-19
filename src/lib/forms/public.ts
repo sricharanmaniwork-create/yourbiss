@@ -32,6 +32,8 @@ export interface PublicForm {
   theme: FormTheme;
   /** Set by `close_at`; the page shows a closed notice instead of the form. */
   closesAt: string | null;
+  /** Where the workspace keeps its clock, so "not in the past" means today there. */
+  timezone: string;
 }
 
 interface FormShape extends Record<string, unknown> {
@@ -44,7 +46,7 @@ interface FormShape extends Record<string, unknown> {
   settings: unknown;
   theme: unknown;
   status: string;
-  orgs: { id: string; name: string; slug: string } | null;
+  orgs: { id: string; name: string; slug: string; timezone: string } | null;
 }
 
 /**
@@ -73,11 +75,12 @@ function toPublicForm(row: FormShape | null): PublicForm | null {
     settings: settings.data as FormSettings,
     theme: theme.data as FormTheme,
     closesAt: (settings.data as FormSettings).close_at,
+    timezone: row.orgs.timezone,
   };
 }
 
 const SELECT =
-  'id, org_id, title, description, slug, fields, settings, theme, status, orgs!inner(id, name, slug, status)';
+  'id, org_id, title, description, slug, fields, settings, theme, status, orgs!inner(id, name, slug, timezone, status)';
 
 export async function findFormBySlug(orgSlug: string, formSlug: string): Promise<PublicForm | null> {
   const supabase = createAdminClient();

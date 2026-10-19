@@ -22,6 +22,7 @@ import {
   isComposite,
   isPresentational,
   partLabel,
+  ruleAppliesTo,
 } from '@/lib/forms/types';
 import { saveFormDefinition } from '@/lib/actions/forms';
 import { Button, Field, FormStatus, Input, Select, Switch, Textarea, toast, useFieldId } from '@/components/ui';
@@ -530,7 +531,10 @@ function FieldInspector({
     const merged: Record<string, unknown> = { ...v, ...changes };
     const next: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(merged)) {
-      if (value === undefined || value === null || value === '') continue;
+      // A rule switched off, emptied or left with nothing in its list is removed rather
+      // than stored as a no-op, so a saved definition only says what it really asks.
+      if (value === undefined || value === null || value === '' || value === false) continue;
+      if (Array.isArray(value) && value.length === 0) continue;
       next[key] = value;
     }
     onChange({ validation: next as Rules });
@@ -783,73 +787,14 @@ function FieldInspector({
 
       {defaultable && <DefaultEditor field={field} canManage={canManage} onChange={onChange} idPrefix={ids} />}
 
-      {textish && (
-        <div className="grid grid-cols-2 gap-2">
-          <Field label="Min characters" htmlFor={`${ids}-minlen`}>
-            <Input
-              id={`${ids}-minlen`}
-              type="number"
-              min={0}
-              max={100000}
-              value={v.min_len ?? ''}
-              disabled={!canManage}
-              onChange={(event) => setValidation({ min_len: numberOrUndefined(event.target.value) })}
-            />
-          </Field>
-          <Field label="Max characters" htmlFor={`${ids}-maxlen`}>
-            <Input
-              id={`${ids}-maxlen`}
-              type="number"
-              min={0}
-              max={100000}
-              value={v.max_len ?? ''}
-              disabled={!canManage}
-              onChange={(event) => setValidation({ max_len: numberOrUndefined(event.target.value) })}
-            />
-          </Field>
-        </div>
-      )}
-
-      {field.type === 'text' ? (
-        <>
-          <Field label="Must match" htmlFor={`${ids}-pattern`} hint="A regular expression, checked the same way in the browser and on the server.">
-            <Input
-              id={`${ids}-pattern`}
-              value={v.pattern ?? ''}
-              maxLength={200}
-              spellCheck={false}
-              placeholder="^[0-9]{6}$"
-              disabled={!canManage}
-              onChange={(event) => setValidation({ pattern: event.target.value })}
-            />
-          </Field>
-          {v.pattern && !isPatternSafe(v.pattern) && (
-            <p className="text-[12px] text-[#b42318]">That expression cannot be read. Publish will refuse it.</p>
-          )}
-        </>
-      ) : null}
-
-      {(numeric || field.type === 'slider') && (
-        <div className="grid grid-cols-2 gap-2">
-          <Field label={field.type === 'slider' ? 'Left end' : 'Smallest'} htmlFor={`${ids}-min`}>
-            <Input
-              id={`${ids}-min`}
-              type="number"
-              value={v.min ?? ''}
-              disabled={!canManage}
-              onChange={(event) => setValidation({ min: numberOrUndefined(event.target.value) })}
-            />
-          </Field>
-          <Field label={field.type === 'slider' ? 'Right end' : 'Largest'} htmlFor={`${ids}-max`}>
-            <Input
-              id={`${ids}-max`}
-              type="number"
-              value={v.max ?? ''}
-              disabled={!canManage}
-              onChange={(event) => setValidation({ max: numberOrUndefined(event.target.value) })}
-            />
-          </Field>
-        </div>
+      {collecting && (
+        <RulesEditor
+          field={field}
+          twins={askable.filter((other) => other.id !== field.id && other.type === field.type)}
+          canManage={canManage}
+          setValidation={setValidation}
+          idPrefix={ids}
+        />
       )}
 
       {collecting && (
@@ -875,6 +820,352 @@ function FieldInspector({
       )}
     </div>
   );
+}
+
+/**
+ * The rules a question's answer has to obey.
+ *
+ * Every box is drawn only when `ruleAppliesTo` says this kind can fail that rule. It
+ * is the same table Publish refuses against and `answers.ts` reads, so a knob that
+ * looks like it checks something and quietly does not cannot appear here.
+ */
+function RulesEditor({
+  field,
+  twins,
+  canManage,
+  setValidation,
+  idPrefix,
+}: {
+  field: FormFieldDef;
+  twins: FormFieldDef[];
+  canManage: boolean;
+  setValidation: (changes: Partial<Rules>) => void;
+  idPrefix: string;
+}) {
+  const v = field.validation ?? {};
+  const applies = (key: keyof Rules) => ruleAppliesTo(key, field.type);
+  const anyRule =
+    (['min_len', 'min_words', 'contains', 'pattern', 'min', 'decimals', 'no_past', 'allow_domains', 'min_digits'] as const).some(applies) ||
+    (applies('min_choices') && collectsMany(field)) ||
+    (applies('same_as') && twins.length > 0);
+  if (!anyRule) return null;
+
+  const lengthish = applies('min_len') || applies('max_len');
+  const wordish = applies('min_words');
+  const textual = applies('contains');
+  const numberish = applies('min') || field.type === 'slider';
+  const dayish = applies('no_past');
+  const manyChoices = collectsMany(field) && applies('min_choices');
+  const emailish = applies('allow_domains');
+  const phoneish = applies('min_digits');
+  const slider = field.type === 'slider';
+
+  return (
+    <div className="grid gap-3">
+      <p className="text-[12.5px] font-semibold text-ink">Answer rules</p>
+
+      {lengthish && (
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Min characters" htmlFor={`${idPrefix}-minlen`}>
+            <Input
+              id={`${idPrefix}-minlen`}
+              type="number"
+              min={0}
+              max={100000}
+              value={v.min_len ?? ''}
+              disabled={!canManage}
+              onChange={(event) => setValidation({ min_len: numberOrUndefined(event.target.value) })}
+            />
+          </Field>
+          <Field label="Max characters" htmlFor={`${idPrefix}-maxlen`}>
+            <Input
+              id={`${idPrefix}-maxlen`}
+              type="number"
+              min={0}
+              max={100000}
+              value={v.max_len ?? ''}
+              disabled={!canManage}
+              onChange={(event) => setValidation({ max_len: numberOrUndefined(event.target.value) })}
+            />
+          </Field>
+        </div>
+      )}
+
+      {wordish && (
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Min words" htmlFor={`${idPrefix}-minwords`}>
+            <Input
+              id={`${idPrefix}-minwords`}
+              type="number"
+              min={1}
+              max={10000}
+              value={v.min_words ?? ''}
+              disabled={!canManage}
+              onChange={(event) => setValidation({ min_words: numberOrUndefined(event.target.value) })}
+            />
+          </Field>
+          <Field label="Max words" htmlFor={`${idPrefix}-maxwords`}>
+            <Input
+              id={`${idPrefix}-maxwords`}
+              type="number"
+              min={1}
+              max={10000}
+              value={v.max_words ?? ''}
+              disabled={!canManage}
+              onChange={(event) => setValidation({ max_words: numberOrUndefined(event.target.value) })}
+            />
+          </Field>
+        </div>
+      )}
+
+      {textual && (
+        <div className="grid grid-cols-3 gap-2">
+          <Field label="Must include" htmlFor={`${idPrefix}-contains`} hint="Compared ignoring capital letters.">
+            <Input
+              id={`${idPrefix}-contains`}
+              value={v.contains ?? ''}
+              maxLength={120}
+              disabled={!canManage}
+              onChange={(event) => setValidation({ contains: event.target.value })}
+            />
+          </Field>
+          <Field label="Must start with" htmlFor={`${idPrefix}-starts`}>
+            <Input
+              id={`${idPrefix}-starts`}
+              value={v.starts_with ?? ''}
+              maxLength={120}
+              disabled={!canManage}
+              onChange={(event) => setValidation({ starts_with: event.target.value })}
+            />
+          </Field>
+          <Field label="Must end with" htmlFor={`${idPrefix}-ends`}>
+            <Input
+              id={`${idPrefix}-ends`}
+              value={v.ends_with ?? ''}
+              maxLength={120}
+              disabled={!canManage}
+              onChange={(event) => setValidation({ ends_with: event.target.value })}
+            />
+          </Field>
+        </div>
+      )}
+
+      {applies('pattern') && (
+        <>
+          <Field label="Must match" htmlFor={`${idPrefix}-pattern`} hint="A regular expression, checked the same way in the browser and on the server.">
+            <Input
+              id={`${idPrefix}-pattern`}
+              value={v.pattern ?? ''}
+              maxLength={200}
+              spellCheck={false}
+              placeholder="^[0-9]{6}$"
+              disabled={!canManage}
+              onChange={(event) => setValidation({ pattern: event.target.value })}
+            />
+          </Field>
+          {v.pattern && !isPatternSafe(v.pattern) && (
+            <p className="text-[12px] text-[#b42318]">That expression cannot be read. Publish will refuse it.</p>
+          )}
+        </>
+      )}
+
+      {numberish && (
+        <div className="grid grid-cols-2 gap-2">
+          <Field label={slider ? 'Left end' : 'Smallest'} htmlFor={`${idPrefix}-min`}>
+            <Input
+              id={`${idPrefix}-min`}
+              type="number"
+              value={v.min ?? ''}
+              disabled={!canManage}
+              onChange={(event) => setValidation({ min: numberOrUndefined(event.target.value) })}
+            />
+          </Field>
+          <Field label={slider ? 'Right end' : 'Largest'} htmlFor={`${idPrefix}-max`}>
+            <Input
+              id={`${idPrefix}-max`}
+              type="number"
+              value={v.max ?? ''}
+              disabled={!canManage}
+              onChange={(event) => setValidation({ max: numberOrUndefined(event.target.value) })}
+            />
+          </Field>
+        </div>
+      )}
+
+      {applies('decimals') && (
+        <Field label="Digits after the point" htmlFor={`${idPrefix}-decimals`} hint="0 asks for a whole number.">
+          <Input
+            id={`${idPrefix}-decimals`}
+            type="number"
+            min={0}
+            max={6}
+            value={v.decimals ?? ''}
+            disabled={!canManage}
+            onChange={(event) => setValidation({ decimals: numberOrUndefined(event.target.value) })}
+          />
+        </Field>
+      )}
+
+      {dayish && (
+        <div className="grid gap-2">
+          <div className="flex items-center justify-between gap-3 rounded-md border border-line px-3 py-2.5">
+            <span className="text-[12.5px] font-medium text-ink">Not in the past</span>
+            <Switch
+              checked={v.no_past === true}
+              disabled={!canManage}
+              label="Not in the past"
+              onChange={(checked) => setValidation({ no_past: checked })}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-md border border-line px-3 py-2.5">
+            <span className="text-[12.5px] font-medium text-ink">Not in the future</span>
+            <Switch
+              checked={v.no_future === true}
+              disabled={!canManage}
+              label="Not in the future"
+              onChange={(checked) => setValidation({ no_future: checked })}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Earliest day" htmlFor={`${idPrefix}-minday`} hint="Today counted by the workspace clock.">
+              <Input
+                id={`${idPrefix}-minday`}
+                type="date"
+                value={v.min_day ?? ''}
+                disabled={!canManage}
+                onChange={(event) => setValidation({ min_day: event.target.value })}
+              />
+            </Field>
+            <Field label="Latest day" htmlFor={`${idPrefix}-maxday`}>
+              <Input
+                id={`${idPrefix}-maxday`}
+                type="date"
+                value={v.max_day ?? ''}
+                disabled={!canManage}
+                onChange={(event) => setValidation({ max_day: event.target.value })}
+              />
+            </Field>
+          </div>
+        </div>
+      )}
+
+      {manyChoices && (
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Min choices" htmlFor={`${idPrefix}-minchoices`}>
+            <Input
+              id={`${idPrefix}-minchoices`}
+              type="number"
+              min={1}
+              max={(field.options ?? []).length || 120}
+              value={v.min_choices ?? ''}
+              disabled={!canManage}
+              onChange={(event) => setValidation({ min_choices: numberOrUndefined(event.target.value) })}
+            />
+          </Field>
+          <Field label="Max choices" htmlFor={`${idPrefix}-maxchoices`}>
+            <Input
+              id={`${idPrefix}-maxchoices`}
+              type="number"
+              min={1}
+              max={(field.options ?? []).length || 120}
+              value={v.max_choices ?? ''}
+              disabled={!canManage}
+              onChange={(event) => setValidation({ max_choices: numberOrUndefined(event.target.value) })}
+            />
+          </Field>
+        </div>
+      )}
+
+      {emailish && (
+        <div className="grid gap-2">
+          <Field label="Only these domains" htmlFor={`${idPrefix}-allowdomains`} hint="Comma separated, like college.edu, company.co.in">
+            <Input
+              id={`${idPrefix}-allowdomains`}
+              value={(v.allow_domains ?? []).join(', ')}
+              maxLength={600}
+              spellCheck={false}
+              disabled={!canManage}
+              onChange={(event) => setValidation({ allow_domains: domainsFrom(event.target.value) })}
+            />
+          </Field>
+          <Field label="Never these domains" htmlFor={`${idPrefix}-blockdomains`}>
+            <Input
+              id={`${idPrefix}-blockdomains`}
+              value={(v.block_domains ?? []).join(', ')}
+              maxLength={600}
+              spellCheck={false}
+              disabled={!canManage}
+              onChange={(event) => setValidation({ block_domains: domainsFrom(event.target.value) })}
+            />
+          </Field>
+        </div>
+      )}
+
+      {phoneish && (
+        <div className="grid gap-2">
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Min digits" htmlFor={`${idPrefix}-mindigits`} hint="Counted on the digits alone.">
+              <Input
+                id={`${idPrefix}-mindigits`}
+                type="number"
+                min={1}
+                max={20}
+                value={v.min_digits ?? ''}
+                disabled={!canManage}
+                onChange={(event) => setValidation({ min_digits: numberOrUndefined(event.target.value) })}
+              />
+            </Field>
+            <Field label="Max digits" htmlFor={`${idPrefix}-maxdigits`}>
+              <Input
+                id={`${idPrefix}-maxdigits`}
+                type="number"
+                min={1}
+                max={20}
+                value={v.max_digits ?? ''}
+                disabled={!canManage}
+                onChange={(event) => setValidation({ max_digits: numberOrUndefined(event.target.value) })}
+              />
+            </Field>
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-md border border-line px-3 py-2.5">
+            <span className="text-[12.5px] font-medium text-ink">Needs a country code</span>
+            <Switch
+              checked={v.need_country_code === true}
+              disabled={!canManage}
+              label="Needs a country code"
+              onChange={(checked) => setValidation({ need_country_code: checked })}
+            />
+          </div>
+        </div>
+      )}
+
+      {applies('same_as') && twins.length > 0 && (
+        <Field label="Must be the same as" htmlFor={`${idPrefix}-sameas`} hint="For a confirm-the-answer question.">
+          <Select
+            id={`${idPrefix}-sameas`}
+            value={v.same_as ?? ''}
+            disabled={!canManage}
+            onChange={(event) => setValidation({ same_as: event.target.value })}
+          >
+            <option value="">Nothing in particular</option>
+            {twins.map((other) => (
+              <option key={other.id} value={other.id}>
+                {other.label || other.id}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
+    </div>
+  );
+}
+
+/** Kept as typed here; Publish trims the list and folds it to lower case. */
+function domainsFrom(text: string): string[] {
+  return text
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== '');
 }
 
 function OptionsEditor({

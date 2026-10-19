@@ -4,6 +4,7 @@ import { checkAnswers, emailAnswerOf, unexpectedAnswerKeys } from '@/lib/forms/a
 import { isFormClosed, orderedFields, visibleFields } from '@/lib/forms/definition';
 import { readPrivates, storeResponse, SubmitRejected, visitorKey } from '@/lib/forms/intake';
 import { clientKey, consume, rateHeaders } from '@/lib/rate-limit';
+import { dateInZone } from '@/lib/utils';
 
 /**
  * Where every public form posts to — the standalone page, the embed frame inside a
@@ -96,7 +97,7 @@ export async function POST(request: NextRequest) {
   if (stranger) return bad(stranger);
 
   const ordered = orderedFields(form.fields, form.settings.field_order);
-  const check = checkAnswers(form.fields, form.settings.field_order, answerRecord);
+  const check = checkAnswers(form.fields, form.settings.field_order, answerRecord, dateInZone(new Date(), form.timezone));
   if (Object.keys(check.errors).length > 0) {
     return bad('Some answers need another look.', 422, check.errors);
   }

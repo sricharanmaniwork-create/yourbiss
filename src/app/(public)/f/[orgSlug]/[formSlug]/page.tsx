@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { PublicForm } from '@/components/forms/public-form';
 import { isFormClosed } from '@/lib/forms/definition';
 import { findFormBySlug, type PublicForm as FormShape } from '@/lib/forms/public';
+import { dateInZone } from '@/lib/utils';
 
 /**
  * The address a workspace shares: `/f/<workspace>/<form>`.
@@ -52,6 +53,7 @@ export default async function PublicFormPage({ params }: { params: Promise<Param
           fields={form.fields}
           settings={form.settings}
           theme={form.theme}
+          today={dateInZone(new Date(), form.timezone)}
         />
       </div>
     </main>

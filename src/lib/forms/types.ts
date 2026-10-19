@@ -194,6 +194,37 @@ export function choiceLabel(field: FormFieldDef, value: string): string {
 }
 
 export type RatingSymbol = 'number' | 'star' | 'heart' | 'thumb' | 'smiley';
+
+/**
+ * Which kinds each rule in `FieldValidation` can be put on.
+ *
+ * Publish refuses a rule the validator would never read, so a form cannot promise a
+ * check it does not perform — the builder only offers these, and the server enforces
+ * the same list whatever a hand-edited definition tries to store.
+ */
+/**
+ * The kinds each rule below may sit on. Kept here rather than repeated in the
+ * builder and the validator, so the knobs on screen and the checks on the server
+ * cannot drift apart.
+ */
+const LENGTH_KINDS: FieldKind[] = ['text', 'textarea', 'email', 'phone', 'url'];
+const WORD_KINDS: FieldKind[] = ['text', 'textarea'];
+const PATTERN_KINDS: FieldKind[] = ['text', 'textarea'];
+const TEXT_RULE_KINDS: FieldKind[] = ['text', 'textarea'];
+const DECIMAL_KINDS: FieldKind[] = ['number', 'rupees', 'currency'];
+const RANGE_KINDS: FieldKind[] = ['number', 'rupees', 'currency', 'slider'];
+const DAY_KINDS: FieldKind[] = ['date', 'datetime', 'monthyear'];
+const MANY_CHOICE_KINDS: FieldKind[] = ['checkbox', 'multiselect', 'image_choice'];
+const DOMAIN_KINDS: FieldKind[] = ['email'];
+const PHONE_RULE_KINDS: FieldKind[] = ['phone'];
+
+/**
+ * A field whose answer can be held to the same answer as another field's. Only kinds
+ * that store one comparable value are in here: two matrices or two signatures cannot
+ * "match" in a way anybody would recognise.
+ */
+const SAME_AS_KINDS: FieldKind[] = ['text', 'email', 'phone', 'url', 'number', 'rupees', 'select', 'radio'];
+
 export interface FieldValidation {
   min_len?: number;
   max_len?: number;
@@ -201,6 +232,30 @@ export interface FieldValidation {
   max?: number;
   pattern?: string;
   message?: string;
+  min_words?: number;
+  max_words?: number;
+  /** Compared ignoring case, against the answer as typed. */
+  contains?: string;
+  starts_with?: string;
+  ends_with?: string;
+  /** Digits after the point. `0` is a whole number. */
+  decimals?: number;
+  /** Day window, for the kinds that hold a day. */
+  no_past?: boolean;
+  no_future?: boolean;
+  min_day?: string;
+  max_day?: string;
+  min_choices?: number;
+  max_choices?: number;
+  /** Email, matched against the lower-cased part after the `@`. */
+  allow_domains?: string[];
+  block_domains?: string[];
+  /** Phone, counted on the digits alone. */
+  min_digits?: number;
+  max_digits?: number;
+  need_country_code?: boolean;
+  /** A field id of the same type: the two answers must be typed the same. */
+  same_as?: string;
 }
 
 export interface MatrixAxes {
@@ -283,7 +338,115 @@ export const MATRIX_MAX_COLUMNS = 10;
  */
 export const SIGNATURE_MAX_CHARS = 40000;
 
+/**
+ * The longest answer each kind can hold at all, whatever a form asks for. These come
+ * from the columns and the shapes the validator reads, not from a rule somebody typed.
+ */
+const ANSWER_CEILING: Partial<Record<FieldKind, number>> = {
+  text: 2000,
+  textarea: 8000,
+  email: 320,
+  url: 600,
+  phone: 32,
+};
+
+/**
+ * The longest answer this kind can hold at all — a structural limit, the same for
+ * every form, and the ceiling the server validates against.
+ */
+export function kindCeiling(field: FormFieldDef): number {
+  return ANSWER_CEILING[field.type] ?? 2000;
+}
+
+/**
+ * The character limit to put on the box a visitor types into: the kind's own, lowered
+ * by the form's maximum when the form asks for less. Stopping the keystroke is the
+ * kind-agnostic part; the rule itself still reports its own wording on the server.
+ */
+export function answerCeiling(field: FormFieldDef): number {
+  const wanted = activeRule(field, 'max_len');
+  return typeof wanted === 'number' ? Math.min(kindCeiling(field), wanted) : kindCeiling(field);
+}
+
 const logicOperatorEnum = z.enum(['is', 'is_not', 'contains', 'is_empty', 'is_filled', 'gt', 'lt']);
+
+/**
+ * The kinds each rule may sit on, and the word Publish uses when it says it may not.
+ *
+ * `answers.ts` reads a rule only for the kinds on the left, so a rule parked on
+ * anything else would be a form promising a check it never runs. The builder draws
+ * its boxes from the same table, which is why a knob cannot appear that does nothing.
+ */
+const RULE_KINDS: Partial<Record<keyof FieldValidation, { kinds: readonly FieldKind[]; word: string }>> = {
+  min_len: { kinds: LENGTH_KINDS, word: 'character count' },
+  max_len: { kinds: LENGTH_KINDS, word: 'character count' },
+  pattern: { kinds: PATTERN_KINDS, word: 'must-match' },
+  min_words: { kinds: WORD_KINDS, word: 'word count' },
+  max_words: { kinds: WORD_KINDS, word: 'word count' },
+  contains: { kinds: TEXT_RULE_KINDS, word: 'contains' },
+  starts_with: { kinds: TEXT_RULE_KINDS, word: 'starts with' },
+  ends_with: { kinds: TEXT_RULE_KINDS, word: 'ends with' },
+  decimals: { kinds: DECIMAL_KINDS, word: 'decimal places' },
+  min: { kinds: RANGE_KINDS, word: 'smallest value' },
+  max: { kinds: RANGE_KINDS, word: 'largest value' },
+  no_past: { kinds: DAY_KINDS, word: 'date' },
+  no_future: { kinds: DAY_KINDS, word: 'date' },
+  min_day: { kinds: DAY_KINDS, word: 'date' },
+  max_day: { kinds: DAY_KINDS, word: 'date' },
+  allow_domains: { kinds: DOMAIN_KINDS, word: 'email domain' },
+  block_domains: { kinds: DOMAIN_KINDS, word: 'email domain' },
+  min_choices: { kinds: MANY_CHOICE_KINDS, word: 'choice count' },
+  max_choices: { kinds: MANY_CHOICE_KINDS, word: 'choice count' },
+  min_digits: { kinds: PHONE_RULE_KINDS, word: 'phone digits' },
+  max_digits: { kinds: PHONE_RULE_KINDS, word: 'phone digits' },
+  need_country_code: { kinds: PHONE_RULE_KINDS, word: 'phone country code' },
+  same_as: { kinds: SAME_AS_KINDS, word: 'matching' },
+};
+
+/**
+ * Whether a rule can be put on a kind at all. The builder only draws a knob this says
+ * yes to, and Publish refuses to save one it says no to, so there is no box anywhere
+ * that looks like it checks something and does not.
+ */
+export function ruleAppliesTo(key: keyof FieldValidation, kind: FieldKind): boolean {
+  const rule = RULE_KINDS[key];
+  return rule ? rule.kinds.includes(kind) : true;
+}
+
+/**
+ * A rule read the way the validator reads it: switched on, and sitting on a kind that
+ * can fail it. The same call answers for the builder, Publish and `answers.ts`, so a
+ * rule parked on the wrong kind is invisible to all three rather than half-obeyed.
+ */
+export function activeRule<K extends keyof FieldValidation>(
+  field: FormFieldDef,
+  key: K,
+): FieldValidation[K] | undefined {
+  if (!ruleAppliesTo(key, field.type)) return undefined;
+  const value = field.validation?.[key];
+  return ruleIsSet(value) ? value : undefined;
+}
+
+/** A rule counts as switched on — a `false` switch and an empty box ask for nothing. */
+function ruleIsSet(value: unknown): boolean {
+  if (value === undefined || value === null || value === false) return false;
+  if (typeof value === 'string') return value.trim() !== '';
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
+}
+
+const DAY_TEXT = /^\d{4}-\d{2}-\d{2}$/;
+const DOMAIN_TEXT = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+
+const lengthSchema = z.number().int().min(0).max(100000);
+const wordSchema = z.number().int().min(1).max(10000);
+const choiceCountSchema = z.number().int().min(1).max(120);
+const digitSchema = z.number().int().min(1).max(20);
+
+/** Trimmed and lower-cased here, so the answer is compared against what was stored. */
+const domainListSchema = z
+  .array(z.string().max(120).transform((value) => value.trim().toLowerCase()))
+  .max(40);
 
 export const fieldOptionSchema = z
   .object({
@@ -314,12 +477,30 @@ export const formFieldSchema: z.ZodType<FormFieldDef> = z
     options: z.array(fieldOptionSchema).max(120).optional(),
     validation: z
       .object({
-        min_len: z.number().int().min(0).max(100000).optional(),
-        max_len: z.number().int().min(0).max(100000).optional(),
+        min_len: lengthSchema.optional(),
+        max_len: lengthSchema.optional(),
         min: z.number().min(-1000000).max(1000000).optional(),
         max: z.number().min(-1000000).max(1000000).optional(),
         pattern: z.string().max(200).optional(),
         message: z.string().max(200).optional(),
+        min_words: wordSchema.optional(),
+        max_words: wordSchema.optional(),
+        contains: z.string().max(120).optional(),
+        starts_with: z.string().max(120).optional(),
+        ends_with: z.string().max(120).optional(),
+        decimals: z.number().int().min(0).max(6).optional(),
+        no_past: z.boolean().optional(),
+        no_future: z.boolean().optional(),
+        min_day: z.string().regex(DAY_TEXT, 'Use a date like 2026-04-01').optional(),
+        max_day: z.string().regex(DAY_TEXT, 'Use a date like 2026-04-01').optional(),
+        min_choices: choiceCountSchema.optional(),
+        max_choices: choiceCountSchema.optional(),
+        allow_domains: domainListSchema.optional(),
+        block_domains: domainListSchema.optional(),
+        min_digits: digitSchema.optional(),
+        max_digits: digitSchema.optional(),
+        need_country_code: z.boolean().optional(),
+        same_as: z.string().max(64).optional(),
       })
       .passthrough()
       .optional(),
@@ -523,6 +704,9 @@ export function validateFieldSemantics(fields: FormFieldDef[]): string | null {
       }
     }
 
+    const ruleError = validateRules(field, fields);
+    if (ruleError) return ruleError;
+
     if (isComposite(field.type) && compositeParts(field).length === 0) {
       return `"${field.label}" has every part switched off, so it asks nothing`;
     }
@@ -561,6 +745,72 @@ export function validateFieldSemantics(fields: FormFieldDef[]): string | null {
       } catch {
         return `"${field.label}" has an invalid regular expression`;
       }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * A rule has to sit on a kind that can fail it, and its two ends have to be in the
+ * right order. This runs at Publish, over the parsed definition, so a form cannot go
+ * live promising a check `answers.ts` would never make.
+ */
+function validateRules(field: FormFieldDef, fields: FormFieldDef[]): string | null {
+  const rules = field.validation;
+  if (!rules) return null;
+
+  const named = `"${field.label}"`;
+  const kindName = FIELD_KIND_LABELS[field.type];
+
+  for (const [key, rule] of Object.entries(RULE_KINDS) as [keyof FieldValidation, { kinds: readonly FieldKind[]; word: string }][]) {
+    if (ruleIsSet(rules[key]) && !rule.kinds.includes(field.type)) {
+      return `${named} cannot carry a ${rule.word} check — ${kindName} asks for no such answer`;
+    }
+  }
+
+  if (ruleIsSet(rules.min_len) && ruleIsSet(rules.max_len) && (rules.min_len ?? 0) > (rules.max_len ?? 0)) {
+    return `${named} needs a character maximum above its character minimum`;
+  }
+  if (rules.min_words !== undefined && rules.max_words !== undefined && rules.min_words > rules.max_words) {
+    return `${named} needs a word maximum above its word minimum`;
+  }
+  if (rules.min !== undefined && rules.max !== undefined && rules.min > rules.max) {
+    return `${named} needs a largest value above its smallest`;
+  }
+  if (rules.min_digits !== undefined && rules.max_digits !== undefined && rules.min_digits > rules.max_digits) {
+    return `${named} needs more digits at the top of its range than at the bottom`;
+  }
+  if (rules.min_day && rules.max_day && rules.min_day > rules.max_day) {
+    return `${named} needs a latest date after its earliest`;
+  }
+
+  const allowed = rules.allow_domains ?? [];
+  const blocked = rules.block_domains ?? [];
+  for (const domain of [...allowed, ...blocked]) {
+    if (!DOMAIN_TEXT.test(domain)) return `${named} has an email domain that is not a domain: "${domain}"`;
+  }
+  const contradicted = allowed.find((domain) => blocked.includes(domain));
+  if (contradicted) return `${named} both allows and blocks "${contradicted}", so nobody can answer it`;
+
+  if (rules.min_choices !== undefined || rules.max_choices !== undefined) {
+    if (!collectsMany(field)) return `${named} sets a number of choices to pick, and it is not a field that picks several`;
+    const options = field.options ?? [];
+    if (rules.min_choices !== undefined && rules.min_choices > options.length) {
+      return `${named} asks for more choices than it offers`;
+    }
+    if (rules.min_choices !== undefined && rules.max_choices !== undefined && rules.min_choices > rules.max_choices) {
+      return `${named} needs a largest number of choices above its smallest`;
+    }
+  }
+
+  if (rules.same_as?.trim()) {
+    const other = fields.find((candidate) => candidate.id === rules.same_as);
+    if (!other) return `${named} is meant to match a field that does not exist`;
+    if (other.id === field.id) return `${named} cannot be made to match itself`;
+    if (isPresentational(other.type)) return `${named} is meant to match a field that collects no answer`;
+    if (other.type !== field.type) {
+      return `${named} is meant to match the ${FIELD_KIND_LABELS[other.type]} field — only the same kind of question can hold the same answer`;
     }
   }
 

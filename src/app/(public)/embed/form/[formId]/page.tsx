@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { PublicForm } from '@/components/forms/public-form';
 import { isFormClosed } from '@/lib/forms/definition';
 import { findFormById } from '@/lib/forms/public';
+import { dateInZone } from '@/lib/utils';
 
 /**
  * The frame a published site puts a form in — `/embed/form/<id>`.
@@ -62,6 +63,7 @@ export default async function FormEmbedPage({
       fields={form.fields}
       settings={form.settings}
       theme={form.theme}
+      today={dateInZone(new Date(), form.timezone)}
     />
   );
 }

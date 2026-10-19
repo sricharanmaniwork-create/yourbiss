@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  activeRule,
   choiceValues,
   collectsMany,
   COMPOSITE_PART_MAX_CHARS,
@@ -7,6 +8,7 @@ import {
   fieldIsVisible,
   isComposite,
   isPresentational,
+  kindCeiling,
   partValue,
   SIGNATURE_MAX_CHARS,
   type FormFieldDef,
@@ -23,6 +25,13 @@ import { orderedFields } from './definition';
  *
  * The public form component validates with this same function, so the wording a
  * visitor sees in the browser is the wording the route would have answered with.
+ *
+ * Two passes, on purpose. The first asks whether the answer is the right *shape* —
+ * a date that is a date, a choice that was offered. The second asks whether it obeys
+ * the form's *rules* — at least ten characters, not in the past, the same as the
+ * address typed above. Shape belongs to zod, where each kind states what it accepts;
+ * rules belong to `grammarError`, because several of them have to look at another
+ * field's answer or at today's date, and zod refinements cannot reach either.
  */
 
 /** Guards against a payload stuffed with unrelated keys. */
@@ -36,10 +45,17 @@ export interface AnswerCheck {
   emailFieldId: string | null;
 }
 
+/**
+ * `today` is the day where the workspace keeps its clock, as `YYYY-MM-DD`. It is
+ * passed in rather than read from a clock because a "no past dates" rule judged by
+ * the visitor's browser and by the server has to be judged against the same day, or
+ * the same answer is accepted in one place and refused in the other.
+ */
 export function checkAnswers(
   fields: FormFieldDef[],
   order: string[] | undefined,
   answers: Record<string, unknown>,
+  today: string,
 ): AnswerCheck {
   const values: Record<string, unknown> = {};
   const errors: Record<string, string> = {};
@@ -77,11 +93,184 @@ export function checkAnswers(
     values[field.id] = result.data;
   }
 
+  // Rules run after every shape check, so one that compares two fields can read the
+  // other answer whether it came before or after this one in the form.
+  for (const field of shown) {
+    const value = values[field.id];
+    if (value === undefined) continue;
+    const failed = grammarError(field, value, values, fields, today);
+    if (!failed) continue;
+    delete values[field.id];
+    errors[field.id] = messageFor(field, failed);
+  }
+
   return { values, errors, emailFieldId };
 }
 
 function messageFor(field: FormFieldDef, fallback: string): string {
   return field.validation?.message?.trim() ? field.validation.message : fallback;
+}
+
+/**
+ * Whether a shaped answer also obeys the rules the form was built with.
+ *
+ * Each rule is read through `activeRule`, which is what lets this stay a flat list:
+ * a rule switched off, or parked on a kind Publish would not have accepted, reads as
+ * `undefined` and asks for nothing.
+ */
+function grammarError(
+  field: FormFieldDef,
+  value: unknown,
+  values: Record<string, unknown>,
+  fields: FormFieldDef[],
+  today: string,
+): string | null {
+  const label = field.label || 'This field';
+  const text = typeof value === 'string' ? value : null;
+  const chosen = Array.isArray(value) ? value : null;
+
+  const minLen = activeRule(field, 'min_len');
+  if (text !== null && minLen !== undefined && text.length < minLen) return `Use at least ${minLen} characters`;
+
+  const maxLen = activeRule(field, 'max_len');
+  if (text !== null && maxLen !== undefined && text.length > maxLen) return `Use at most ${maxLen} characters`;
+
+  const minWords = activeRule(field, 'min_words');
+  const maxWords = activeRule(field, 'max_words');
+  if (text !== null && (minWords !== undefined || maxWords !== undefined)) {
+    const words = wordCount(text);
+    if (minWords !== undefined && words < minWords) return `Use at least ${minWords} words`;
+    if (maxWords !== undefined && words > maxWords) return `Use at most ${maxWords} words`;
+  }
+
+  if (text !== null) {
+    const lower = text.toLowerCase();
+    for (const key of ['contains', 'starts_with', 'ends_with'] as const) {
+      const wanted = activeRule(field, key);
+      if (wanted === undefined) continue;
+      const term = wanted.trim().toLowerCase();
+      const holding = key === 'contains' ? lower.includes(term) : key === 'starts_with' ? lower.startsWith(term) : lower.endsWith(term);
+      if (!holding) {
+        const said = key === 'contains' ? 'include' : key === 'starts_with' ? 'start with' : 'end with';
+        return `“${label}” must ${said} “${wanted.trim()}”`;
+      }
+    }
+
+    const pattern = activeRule(field, 'pattern');
+    if (pattern !== undefined && !safePattern(pattern).test(text)) return `“${label}” is not in the expected format`;
+  }
+
+  if (typeof value === 'number') {
+    // A slider cannot be dragged past its own ends, so those two numbers are the
+    // control, not a rule; on every other kind they are a rule the visitor can miss.
+    if (field.type !== 'slider') {
+      const min = activeRule(field, 'min');
+      const max = activeRule(field, 'max');
+      if (min !== undefined && value < min) return `Must be at least ${min}`;
+      if (max !== undefined && value > max) return `Must be at most ${max}`;
+    }
+
+    const decimals = activeRule(field, 'decimals');
+    if (decimals !== undefined && decimalPlaces(value) > decimals) {
+      if (decimals === 0) return `${label} must be a whole number`;
+      return `${label} can have ${decimals} digit${decimals === 1 ? '' : 's'} after the point`;
+    }
+  }
+
+  if (text !== null) {
+    const dayProblem = dayError(field, text, today);
+    if (dayProblem) return dayProblem;
+  }
+
+  const minChoices = activeRule(field, 'min_choices');
+  const maxChoices = activeRule(field, 'max_choices');
+  if (chosen !== null && collectsMany(field)) {
+    if (minChoices !== undefined && chosen.length < minChoices) return `Choose at least ${minChoices} of these`;
+    if (maxChoices !== undefined && chosen.length > maxChoices) return `Choose at most ${maxChoices} of these`;
+  }
+
+  if (text !== null && field.type === 'email') {
+    const domain = text.slice(text.lastIndexOf('@') + 1).toLowerCase();
+    const blocked = activeRule(field, 'block_domains') ?? [];
+    const hit = blocked.find((listed) => holdsDomain(domain, listed));
+    if (hit) return `Please use an email address that is not at ${hit}`;
+    const allowed = activeRule(field, 'allow_domains') ?? [];
+    if (allowed.length > 0 && !allowed.some((listed) => holdsDomain(domain, listed))) {
+      return `Please use an email address at ${allowed.join(' or ')}`;
+    }
+  }
+
+  if (text !== null && field.type === 'phone') {
+    const digits = text.replace(/\D/g, '');
+    const minDigits = activeRule(field, 'min_digits');
+    const maxDigits = activeRule(field, 'max_digits');
+    if (minDigits !== undefined && digits.length < minDigits) return `Enter at least ${minDigits} digits`;
+    if (maxDigits !== undefined && digits.length > maxDigits) return `Enter at most ${maxDigits} digits`;
+    if (activeRule(field, 'need_country_code') && !text.startsWith('+')) return 'Start with the country code, like +91';
+  }
+
+  const twin = activeRule(field, 'same_as');
+  if (twin !== undefined) {
+    const other = fields.find((candidate) => candidate.id === twin);
+    const wanted = values[twin];
+    // No answer above to compare against — the other field was hidden, left blank or
+    // itself wrong — is not this field's fault, so nothing is said here about it.
+    if (other && wanted !== undefined && !sameAnswer(value, wanted)) {
+      return `“${label}” must be the same as “${other.label || 'the field above'}”`;
+    }
+  }
+
+  return null;
+}
+
+function wordCount(text: string): number {
+  const trimmed = text.trim();
+  return trimmed === '' ? 0 : trimmed.split(/\s+/).length;
+}
+
+/** Digits after the point, read off the number as it was stored. */
+function decimalPlaces(value: number): number {
+  const text = String(Math.abs(value));
+  const small = text.indexOf('e-');
+  if (small !== -1) return Number(text.slice(small + 2)) || 0;
+  const point = text.indexOf('.');
+  return point === -1 ? 0 : text.slice(point + 1).length;
+}
+
+/**
+ * A day rule judged against the day the workspace is living through.
+ *
+ * Compared as text, because `2026-04-01` sorts after `2026-03-31` without a date
+ * library and a timezone in the way. A month field is judged on its month: April is
+ * not "in the past" while it is still April.
+ */
+function dayError(field: FormFieldDef, value: string, today: string): string | null {
+  if (field.type !== 'date' && field.type !== 'datetime' && field.type !== 'monthyear') return null;
+  const width = field.type === 'monthyear' ? 7 : 10;
+  const word = field.type === 'monthyear' ? 'month' : 'day';
+  const given = value.slice(0, width);
+  const now = today.slice(0, width);
+
+  if (activeRule(field, 'no_past') && given < now) return `Choose a ${word} that is not in the past`;
+  if (activeRule(field, 'no_future') && given > now) return `Choose a ${word} that is not in the future`;
+
+  const minDay = activeRule(field, 'min_day');
+  if (minDay !== undefined && given < minDay.slice(0, width)) return `Choose a ${word} on or after ${minDay.slice(0, width)}`;
+  const maxDay = activeRule(field, 'max_day');
+  if (maxDay !== undefined && given > maxDay.slice(0, width)) return `Choose a ${word} on or before ${maxDay.slice(0, width)}`;
+
+  return null;
+}
+
+/** `gmail.com` covers `mail.gmail.com`, so a blocked company cannot be slipped past by its subdomain. */
+function holdsDomain(domain: string, listed: string): boolean {
+  return domain === listed || domain.endsWith(`.${listed}`);
+}
+
+/** Two answers that hold the same thing. Addresses and email are read without regard to case. */
+function sameAnswer(one: unknown, other: unknown): boolean {
+  if (typeof one === 'string' && typeof other === 'string') return one.trim().toLowerCase() === other.trim().toLowerCase();
+  return one === other;
 }
 
 function isEmptyAnswer(raw: unknown): boolean {
@@ -123,15 +312,10 @@ function schemaFor(field: FormFieldDef): z.ZodTypeAny {
 
   switch (field.type) {
     case 'text':
-      return z
-        .preprocess(trimToString, z.string().min(1).max(v.max_len ?? 2000))
-        .refine((s) => !v.min_len || s.length >= v.min_len, `Use at least ${v.min_len} characters`)
-        .refine((s) => !v.pattern || safePattern(v.pattern).test(s), `“${label}” is not in the expected format`);
+      return z.preprocess(trimToString, z.string().min(1).max(kindCeiling(field), 'That answer is too long'));
 
     case 'textarea':
-      return z
-        .preprocess(trimToString, z.string().min(1).max(v.max_len ?? 8000))
-        .refine((s) => !v.min_len || s.length >= v.min_len, `Use at least ${v.min_len} characters`);
+      return z.preprocess(trimToString, z.string().min(1).max(kindCeiling(field), 'That answer is too long'));
 
     case 'name':
     case 'address': {
@@ -144,7 +328,6 @@ function schemaFor(field: FormFieldDef): z.ZodTypeAny {
           (o) => Object.values(o).every((value) => value.length <= COMPOSITE_PART_MAX_CHARS),
           `Keep each part of “${label}” under ${COMPOSITE_PART_MAX_CHARS} characters`,
         )
-        .refine((o) => !v.max_len || Object.values(o).join(' ').length <= v.max_len, `Use at most ${v.max_len} characters`)
         .refine(
           // A required composite wants what it shows: the parts are the question, and
           // switching one on in the builder is what makes it an answer the app needs.
@@ -154,23 +337,23 @@ function schemaFor(field: FormFieldDef): z.ZodTypeAny {
     }
 
     case 'email':
-      return z.preprocess(trimToString, z.string().email('Enter an email address like you@example.com').max(320));
+      return z.preprocess(trimToString, z.string().email('Enter an email address like you@example.com').max(kindCeiling(field)));
 
     case 'phone':
       return z.preprocess(trimToString, z.string().regex(/^[+0-9 ()\-.]{5,32}$/, 'Enter a valid phone number'));
 
     case 'url':
-      return z.preprocess(trimToString, z.string().url('Enter a full web address, https:// included').max(600));
+      return z.preprocess(trimToString, z.string().url('Enter a full web address, https:// included').max(kindCeiling(field)));
 
     case 'number':
     case 'rupees':
     case 'currency':
+      // The size of the number is the form's rule, checked after the shape; all that
+      // matters here is that an answer was a number at all.
       return z
         .union([z.coerce.number(), z.string()])
         .transform((n) => (typeof n === 'string' ? Number(n) : n))
-        .refine((n) => Number.isFinite(n), `Enter a number`)
-        .refine((n) => v.min === undefined || n >= v.min, `Must be at least ${v.min}`)
-        .refine((n) => v.max === undefined || n <= v.max, `Must be at most ${v.max}`);
+        .refine((n) => Number.isFinite(n), `Enter a number`);
 
     case 'date':
       return z

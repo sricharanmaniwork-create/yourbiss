@@ -5,6 +5,7 @@ import { Heart, Smile, Star, ThumbsUp } from 'lucide-react';
 import { checkAnswers } from '@/lib/forms/answers';
 import { orderedFields } from '@/lib/forms/definition';
 import {
+  answerCeiling,
   collectsMany,
   COMPOSITE_PART_MAX_CHARS,
   compositeParts,
@@ -38,6 +39,13 @@ export interface PublicFormProps {
   fields: FormFieldDef[];
   settings: FormSettings;
   theme: FormTheme;
+  /**
+   * Today where the workspace keeps its clock, as `YYYY-MM-DD`, handed over by the
+   * page. A "not in the past" rule judged by this browser's clock and by the server's
+   * could disagree by a day, and the visitor would be told their answer is wrong
+   * after it looked accepted.
+   */
+  today: string;
   /** `embed` leaves off the card: the frame already sits inside someone's page. */
   variant?: 'page' | 'embed';
 }
@@ -65,7 +73,7 @@ function seedDefaults(fields: FormFieldDef[]): Answers {
   return seeded;
 }
 
-export function PublicForm({ formId, title, description, fields, settings, theme, variant = 'page' }: PublicFormProps) {
+export function PublicForm({ formId, title, description, fields, settings, theme, today, variant = 'page' }: PublicFormProps) {
   const ordered = useMemo(() => orderedFields(fields, settings.field_order), [fields, settings.field_order]);
   const [answers, setAnswers] = useState<Answers>(() => seedDefaults(ordered));
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -97,7 +105,7 @@ export function PublicForm({ formId, title, description, fields, settings, theme
       if (!isPresentational(field.type)) payload[field.id] = answers[field.id] ?? '';
     }
 
-    const check = checkAnswers(fields, settings.field_order, payload);
+    const check = checkAnswers(fields, settings.field_order, payload, today);
     if (Object.keys(check.errors).length > 0) {
       setErrors(check.errors);
       setNotice('Some answers need another look.');
@@ -597,7 +605,7 @@ function Control({
           rows={4}
           value={text}
           minLength={v.min_len}
-          maxLength={v.max_len ?? 8000}
+          maxLength={answerCeiling(field)}
           onChange={(event) => setValue(field.id, event.target.value)}
         />,
       );
@@ -610,7 +618,7 @@ function Control({
           autoComplete="email"
           inputMode="email"
           value={text}
-          maxLength={v.max_len ?? 320}
+          maxLength={answerCeiling(field)}
           onChange={(event) => setValue(field.id, event.target.value)}
         />,
       );
@@ -623,7 +631,7 @@ function Control({
           autoComplete="tel"
           inputMode="tel"
           value={text}
-          maxLength={v.max_len ?? 32}
+          maxLength={answerCeiling(field)}
           onChange={(event) => setValue(field.id, event.target.value)}
         />,
       );
@@ -636,7 +644,7 @@ function Control({
           inputMode="url"
           placeholder={field.placeholder ?? 'https://'}
           value={text}
-          maxLength={v.max_len ?? 600}
+          maxLength={answerCeiling(field)}
           onChange={(event) => setValue(field.id, event.target.value)}
         />,
       );
@@ -774,7 +782,7 @@ function Control({
           type="text"
           value={text}
           minLength={v.min_len}
-          maxLength={v.max_len ?? 2000}
+          maxLength={answerCeiling(field)}
           pattern={v.pattern}
           onChange={(event) => setValue(field.id, event.target.value)}
         />,
